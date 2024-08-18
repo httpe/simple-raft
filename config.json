@@ -1,0 +1,16 @@
+{
+    "servers": [
+        {
+            "name": "A",
+            "id": "abc",
+            "port": 5000,
+            "log_level": "info"
+        },
+        {
+            "name": "B",
+            "id": "xyz",
+            "port": 5001,
+            "log_level": "info"
+        }
+    ]
+}

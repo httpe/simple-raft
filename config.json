@@ -12,5 +12,12 @@
             "port": 5001,
             "log_level": "info"
         }
-    ]
+    ],
+    "use_proxy": true,
+    "proxy": {
+        "name": "Proxy",
+        "id": "ppp",
+        "port": 4999,
+        "log_level": "info"
+    }
 }

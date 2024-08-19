@@ -3,6 +3,8 @@ from enum import Enum
 
 from uvicorn.config import LOGGING_CONFIG
 
+logger = logging.getLogger("uvicorn.error")
+
 
 class LogLevel(Enum):
     debug = "debug"
@@ -25,4 +27,10 @@ def get_uvicorn_log_config():
     return log_config
 
 
-logger = logging.getLogger("uvicorn.error")
+def attach_log_file(path: str):
+    # create file handler which logs even debug messages
+    fh = logging.FileHandler(path)
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)

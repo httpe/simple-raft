@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import argparse
+import os
 
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 import uvicorn
 
-from .logger import logger, get_uvicorn_log_config
+from .logger import logger, get_uvicorn_log_config, attach_log_file
 from .network import (
     HttpNetworkInterface,
     HttpNetworkInterfaceWithProxy,
@@ -39,6 +40,10 @@ async def lifespan(app: FastAPI):
 
     # set global variables
     singleton.init(plant, server, network)
+
+    log_path = os.path.join("logs", f"Log_{server.name}.txt")
+    os.makedirs("logs", exist_ok=True)
+    attach_log_file(log_path)
 
     yield
     # TODO: cleanup

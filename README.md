@@ -23,11 +23,17 @@ To run two servers `A` and `B`:
 In one terminal:
 
 ```powershell
-python server.py config.json A
+python -m raft.server ./config.json A
 ```
 
 In another terminal:
 
 ```powershell
-python server.py config.json B
+python -m raft.server ./config.json B
+```
+
+In yet another terminal:
+
+```powershell
+python -m raft.server ./config.json Proxy
 ```

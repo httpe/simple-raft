@@ -29,7 +29,7 @@ def get_uvicorn_log_config():
 
 def attach_log_file(path: str):
     # create file handler which logs even debug messages
-    fh = logging.FileHandler(path)
+    fh = logging.FileHandler(path, encoding="utf-8")
     fh.setLevel(logging.DEBUG)
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
     fh.setFormatter(formatter)

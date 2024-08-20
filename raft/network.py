@@ -80,8 +80,13 @@ class HttpNetworkInterface(NetworkInterface):
     ) -> str:
         base_url = destination.construct_base_url(endpoint)
         logger.info(f"Calling {base_url} with params {params}")
-        r = httpx.get(base_url, params=params, timeout=singleton.server.timeout)
-        return r.text
+        try:
+            r = httpx.get(base_url, params=params, timeout=singleton.server.timeout)
+            return r.text
+        except httpx.TimeoutException as e:
+            raise NetworkTimeoutException()
+        except Exception as e:
+            raise NetworkGeneralException() from e
 
 
 ############################################
@@ -106,8 +111,13 @@ class HttpNetworkInterfaceWithProxy(HttpNetworkInterface):
         )
         data = request.model_dump()
         logger.info(f"Sending request via proxy {self.proxy_addr.name}: {data}")
-        r = httpx.post(base_proxy_url, json=data)
-        return r.text
+        try:
+            r = httpx.post(base_proxy_url, json=data)
+            return r.text
+        except httpx.TimeoutException as e:
+            raise NetworkTimeoutException() from e
+        except Exception as e:
+            raise NetworkGeneralException() from e
 
 
 @router.post("/route")

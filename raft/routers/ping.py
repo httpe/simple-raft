@@ -3,7 +3,7 @@ from fastapi import APIRouter
 
 from ..singleton import singleton
 from ..logger import logger
-
+from ..network import NetworkException
 
 router = APIRouter()
 
@@ -35,9 +35,13 @@ class PingResponse(BaseModel):
 async def ping(server_name: str) -> PingResponse:
     logger.info(f"Ping-ing {server_name}")
     destination = singleton.plant.get_server(server_name).address
-    result_json = singleton.network.call(
-        destination, "/pong", {"requester": singleton.server.name}
-    )
+    try:
+        result_json = singleton.network.call(
+            destination, "/pong", {"requester": singleton.server.name}
+        )
+    except NetworkException as e:
+        logger.error(f"Ping encountered network exception: {e}")
+        raise e
     logger.info(f"Pong respond received from {destination.name}")
     remote_resp = PongResponse.model_validate_json(result_json)
     resp = PingResponse(

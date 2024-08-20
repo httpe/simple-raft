@@ -40,7 +40,9 @@ def consolidate_logs(input_directory: str, output_file: str):
     # Read all log files in the input directory
     for filename in os.listdir(input_directory):
         if filename.endswith(".log"):
-            with open(os.path.join(input_directory, filename), "r") as file:
+            with open(
+                os.path.join(input_directory, filename), "r", encoding="utf-8"
+            ) as file:
                 lines = file.readlines()
                 server_name = filename_to_server_name(filename)
                 logs = [parse_log(server_name, line) for line in lines]

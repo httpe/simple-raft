@@ -5,7 +5,7 @@ from ..singleton import singleton
 from ..logger import logger
 from ..network import NetworkException
 
-router = APIRouter()
+router = APIRouter(tags=["Ping"])
 
 
 class PongResponse(BaseModel):

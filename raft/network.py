@@ -14,7 +14,7 @@ from .singleton import singleton
 ## Globals
 ############################################
 
-router = APIRouter()
+router = APIRouter(tags=["Proxy"])
 
 
 ############################################

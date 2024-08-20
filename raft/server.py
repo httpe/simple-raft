@@ -16,6 +16,7 @@ from .network import (
     router as network_router,
 )
 from .routers.ping import router as ping_router
+from .routers.tpc import router as tpc_router
 from .configs import PlantConfig
 from .singleton import singleton
 
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(network_router)
 app.include_router(ping_router)
+app.include_router(tpc_router)
 
 ############################################
 ## Server Config & Initialization
@@ -96,6 +98,7 @@ def main():
         log_level=server.log_level.value,
         log_config=log_config,
         reload=True,
+        workers=1,
     )
 
 

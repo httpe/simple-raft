@@ -1,6 +1,6 @@
 from typing_extensions import Self, Annotated
 
-from pydantic import BaseModel, PositiveInt, model_validator, Field
+from pydantic import BaseModel, PositiveInt, model_validator, Field, NonNegativeFloat
 from .logger import LogLevel
 
 from .network import NetworkAddress
@@ -12,6 +12,7 @@ class ServerConfig(BaseModel):
     host: str | None = None
     port: PositiveInt
     log_level: LogLevel
+    timeout: NonNegativeFloat
 
     @property
     def address(self):

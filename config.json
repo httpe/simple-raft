@@ -4,13 +4,15 @@
             "name": "A",
             "id": "abc",
             "port": 5000,
-            "log_level": "info"
+            "log_level": "info",
+            "timeout": 5.0
         },
         {
             "name": "B",
             "id": "xyz",
             "port": 5001,
-            "log_level": "info"
+            "log_level": "info",
+            "timeout": 5.0
         }
     ],
     "use_proxy": true,
@@ -18,6 +20,7 @@
         "name": "Proxy",
         "id": "ppp",
         "port": 4999,
-        "log_level": "info"
+        "log_level": "info",
+        "timeout": 5.0
     }
 }

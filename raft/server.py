@@ -28,6 +28,7 @@ from .singleton import singleton
 async def lifespan(app: FastAPI):
     # This cannot be moved into __main__ as FastAPI will load the script without __main__ for sub-workers
     plant, server = get_server_settings()
+    logger.info(f"Server starting: {server}")
 
     # Use proxy if set so
     if plant.use_proxy and plant.proxy is not None and server != plant.proxy:

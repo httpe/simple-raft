@@ -80,7 +80,7 @@ class HttpNetworkInterface(NetworkInterface):
     ) -> str:
         base_url = destination.construct_base_url(endpoint)
         logger.info(f"Calling {base_url} with params {params}")
-        r = httpx.get(base_url, params=params)
+        r = httpx.get(base_url, params=params, timeout=singleton.server.timeout)
         return r.text
 
 

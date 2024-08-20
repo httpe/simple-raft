@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     # set global variables
     singleton.init(plant, server, network)
 
-    log_path = os.path.join("logs", f"Log_{server.name}.txt")
+    log_path = os.path.join("logs", f"{server.name}.log")
     os.makedirs("logs", exist_ok=True)
     attach_log_file(log_path)
 

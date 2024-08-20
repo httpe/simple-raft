@@ -37,3 +37,10 @@ In yet another terminal:
 ```powershell
 python -m raft.server ./config.json Proxy
 ```
+
+Logs will be written to `logs/` folder, and you can consolidate all log files into one by:
+
+```powershell
+python -m raft.monitor
+```
+

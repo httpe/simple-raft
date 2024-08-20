@@ -1,13 +1,13 @@
-from typing_extensions import Self
+from typing_extensions import Self, Annotated
 
-from pydantic import BaseModel, PositiveInt, model_validator
+from pydantic import BaseModel, PositiveInt, model_validator, Field
 from .logger import LogLevel
 
 from .network import NetworkAddress
 
 
 class ServerConfig(BaseModel):
-    name: str
+    name: Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9]*$")]
     id: str
     host: str | None = None
     port: PositiveInt

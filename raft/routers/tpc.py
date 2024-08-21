@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 from fastapi import APIRouter
 
@@ -7,8 +9,14 @@ from ..network import NetworkException
 
 router = APIRouter(prefix="/tpc", tags=["Two Phase Commit"])
 
+
+class DataEntry(BaseModel):
+    data: str
+    timestamp: datetime
+
+
 # state holder
-database: dict[str, str] = {}
+database: dict[str, DataEntry] = {}
 
 
 class DBGetResponse(BaseModel):
@@ -16,7 +24,7 @@ class DBGetResponse(BaseModel):
     server_id: str
     id: str
     db_size: int
-    data: str | None
+    entry: DataEntry | None
 
 
 @router.get("/get/{id}")
@@ -27,7 +35,7 @@ async def tpc_get(id: str) -> DBGetResponse:
         server_id=singleton.server.id,
         id=id,
         db_size=len(database),
-        data=database.get(id),
+        entry=database.get(id),
     )
     return resp
 
@@ -51,7 +59,8 @@ class DBSetResponse(BaseModel):
 async def tpc_propagate(id: str, data: str) -> DBPropagateResponse:
     logger.info(f"Database PROPAGATE set {id} to {data}")
     # Set local state
-    database[id] = data
+    entry = DataEntry(data=data, timestamp=datetime.now())
+    database[id] = entry
     resp = DBPropagateResponse(
         server_name=singleton.server.name,
         server_id=singleton.server.id,
@@ -66,7 +75,8 @@ async def tpc_set(id: str, data: str) -> DBSetResponse:
     logger.info(f"Database SET {id} to {data}")
 
     # Set local state
-    database[id] = data
+    entry = DataEntry(data=data, timestamp=datetime.now())
+    database[id] = entry
 
     # Propagate to all siblings
     siblings = [x for x in singleton.plant.servers if x != singleton.server]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os
+import argparse
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -34,7 +35,7 @@ def parse_log(server_name: str, line: str) -> LogMessage | None:
         return None
 
 
-def consolidate_logs(input_directory: str, output_file: str):
+def merge_logs(input_directory: str, output_file: str):
     all_lines: list[LogMessage] = []
 
     # Read all log files in the input directory
@@ -58,7 +59,30 @@ def consolidate_logs(input_directory: str, output_file: str):
         outfile.writelines(lines)
 
 
+def parse_cml_args():
+    parser = argparse.ArgumentParser(
+        prog="Log Merger",
+        description="Log Merger",
+        epilog="Merge log files",
+    )
+    parser.add_argument(
+        "--log_dir",
+        default="logs",
+        help="Path to the plant log dir",
+    )
+    parser.add_argument(
+        "--output",
+        default="all.log",
+        help="Path to dump the merged log file",
+    )
+    args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_cml_args()
+    merge_logs(args.log_dir, args.output)
+
+
 if __name__ == "__main__":
-    input_dir = "logs/"
-    output_file = "all.log"
-    consolidate_logs(input_dir, output_file)
+    main()

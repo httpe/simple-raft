@@ -44,3 +44,8 @@ Logs will be written to `logs/` folder, and you can consolidate all log files in
 python -m raft.monitor
 ```
 
+You can run test against the servers with:
+
+```powershell
+python -m raft.client
+```

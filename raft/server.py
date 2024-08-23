@@ -10,11 +10,8 @@ from fastapi import FastAPI
 import uvicorn
 
 from .logger import logger, get_uvicorn_log_config, attach_log_file
-from .network import (
-    HttpNetworkInterface,
-    HttpNetworkInterfaceWithProxy,
-    router as network_router,
-)
+from .network import HttpNetworkInterface
+from .proxy import HttpNetworkInterfaceWithProxy, router as network_router
 from .routers.ping import router as ping_router
 from .routers.tpc import router as tpc_router
 from .configs import PlantConfig

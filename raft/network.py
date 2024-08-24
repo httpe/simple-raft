@@ -1,14 +1,17 @@
+from typing import TypeVar
+
 from urllib.parse import urlunparse, urlencode
 from collections import namedtuple
 from abc import ABC, abstractmethod
 
 import httpx
-from pydantic import BaseModel, PositiveInt
+from pydantic import BaseModel, PositiveInt, NonNegativeFloat
 from fastapi import status
 
 from .logger import logger
-from .singleton import singleton
+from .api import PROXY_ROUTE_ENDPOINT
 
+TResp = TypeVar("TResp", bound=BaseModel)
 
 ############################################
 ## Network Exceptions
@@ -28,7 +31,7 @@ class NetworkGeneralException(NetworkException):
 
 
 ############################################
-## Network Interface
+## Abstract Network Interface
 ############################################
 
 
@@ -46,17 +49,14 @@ class NetworkAddress(BaseModel):
         return components_to_url("http", netloc, path)
 
 
-class NetworkRequest(BaseModel):
-    origin: NetworkAddress
-    destination: NetworkAddress
-    endpoint: str
-    params: dict | None
-
-
 class NetworkInterface(ABC):
     @abstractmethod
     def call(
-        self, destination: NetworkAddress, endpoint: str, params: dict | None = None
+        self,
+        destination: NetworkAddress,
+        endpoint: str,
+        body: dict | None = None,
+        timeout: NonNegativeFloat = 0,
     ) -> str:
         pass
 
@@ -81,18 +81,27 @@ def components_to_url(
     return str(url)
 
 
+############################################
+## Default Interface
+############################################
+
+
 class HttpNetworkInterface(NetworkInterface):
     def __init__(self, self_addr: NetworkAddress) -> None:
         super().__init__()
         self.self_addr = self_addr
 
     def call(
-        self, destination: NetworkAddress, endpoint: str, params: dict | None = None
+        self,
+        destination: NetworkAddress,
+        endpoint: str,
+        body: dict | None = None,
+        timeout: NonNegativeFloat = 0,
     ) -> str:
         base_url = destination.construct_base_url(endpoint)
-        logger.info(f"Calling {base_url} with params {params}")
+        logger.info(f"Calling {base_url} with body {body}")
         try:
-            r = httpx.get(base_url, params=params, timeout=singleton.server.timeout)
+            r = httpx.post(base_url, json=body, timeout=timeout)
         except httpx.TimeoutException as e:
             raise NetworkTimeoutException()
         except Exception as e:
@@ -100,3 +109,49 @@ class HttpNetworkInterface(NetworkInterface):
         if r.status_code != status.HTTP_200_OK:
             raise NetworkGeneralException(r.status_code)
         return r.text
+
+
+############################################
+## Proxy Interface
+############################################
+
+
+class NetworkRequest(BaseModel):
+    origin: NetworkAddress
+    destination: NetworkAddress
+    endpoint: str
+    body: dict | None
+
+
+class HttpNetworkInterfaceWithProxy(HttpNetworkInterface):
+    def __init__(self, self_addr: NetworkAddress, proxy_addr: NetworkAddress) -> None:
+        super().__init__(self_addr=self_addr)
+        self.proxy_addr = proxy_addr
+
+    def call(
+        self,
+        destination: NetworkAddress,
+        endpoint: str,
+        body: dict | None = None,
+        timeout: NonNegativeFloat = 0,
+    ) -> str:
+        base_proxy_url = self.proxy_addr.construct_base_url(PROXY_ROUTE_ENDPOINT)
+        request = NetworkRequest(
+            origin=self.self_addr,
+            destination=destination,
+            endpoint=endpoint,
+            body=body,
+        )
+        data = request.model_dump()
+        logger.info(f"Sending request via proxy {self.proxy_addr.name}: {data}")
+        try:
+            r = httpx.post(base_proxy_url, json=data, timeout=timeout)
+            if r.status_code != status.HTTP_200_OK:
+                raise NetworkGeneralException(r.status_code)
+            return r.text
+        except httpx.TimeoutException as e:
+            raise NetworkTimeoutException() from e
+        except NetworkGeneralException as e:
+            raise e
+        except Exception as e:
+            raise NetworkGeneralException() from e

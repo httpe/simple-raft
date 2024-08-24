@@ -1,56 +1,56 @@
+from typing import TypeVar, Type
 import argparse
 import json
 import logging
 import httpx
 from fastapi import status
+from pydantic import BaseModel
+
 from .configs import PlantConfig, ServerConfig
-from .routers.tpc import DBGetResponse, DBSetResponse
-from .proxy import RequestMatchingCriteria
 from .network import NetworkGeneralException
+from .api import (
+    TPC_GET_ENDPOINT,
+    DBGetArg,
+    DBGetResponse,
+    TPC_SET_ENDPOINT,
+    DBSetArg,
+    DBSetResponse,
+    RequestMatchingCriteria,
+    PROXY_RULE_SET_ENDPOINT,
+    ProxySetRuleArg,
+    ProxySetRuleResponse,
+    PROXY_CLEAR_RULES_ENDPOINT,
+    ProxyClearRulesResponse,
+    ProxyClearRulesArg,
+)
 
 logging.basicConfig(format="%(asctime)s %(levelname)s:%(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+TResp = TypeVar("TResp", bound=BaseModel)
 
-def tpc_set(server: ServerConfig, id: str, data: str):
-    url = server.address.construct_base_url(f"/tpc/set/{id}")
-    r = httpx.get(url, params={"data": data})
+
+def call_api(
+    server: ServerConfig, endpoint: str, arg: BaseModel, resp_class: Type[TResp]
+) -> TResp:
+    url = server.address.construct_base_url(endpoint)
+    r = httpx.post(url, json=arg.model_dump())
     if r.status_code != status.HTTP_200_OK:
         raise NetworkGeneralException(r.status_code)
-    return DBSetResponse(**r.json())
-
-
-def tpc_get(server: ServerConfig, id: str) -> DBGetResponse:
-    url = server.address.construct_base_url(f"/tpc/get/{id}")
-    r = httpx.get(url)
-    if r.status_code != status.HTTP_200_OK:
-        raise NetworkGeneralException(r.status_code)
-    return DBGetResponse(**r.json())
-
-
-def proxy_set_drop_rule(
-    proxy: ServerConfig, id: str, criteria: RequestMatchingCriteria
-):
-    url = proxy.address.construct_base_url(f"/proxy/set/drop_rule/{id}")
-    r = httpx.post(url, json=criteria.model_dump())
-    assert r.status_code == status.HTTP_200_OK
-
-
-def proxy_clear_drop_rules(proxy: ServerConfig, ids: list[str] | None = None):
-    url = proxy.address.construct_base_url(f"/proxy/clear/drop_rules")
-    r = httpx.get(url, params={"ids": ids})
-    assert r.status_code == status.HTTP_200_OK
+    return resp_class(**r.json())
 
 
 def test_tpc_simple_sync(main: ServerConfig, sub: ServerConfig):
     logger.info(f"Two-Phase-Commit: Running simple sync test between {main} and {sub}")
-    id = "abc"
+    key = "abc"
     data = "xyz"
-    write = tpc_set(main, id, data)
+    write = call_api(
+        main, TPC_SET_ENDPOINT, DBSetArg(key=key, data=data), DBSetResponse
+    )
     logger.info(f"TPC SET response: {write}")
-    assert write.id == id
-    read_sub = tpc_get(sub, id)
-    read_main = tpc_get(main, id)
+    assert write.key == key
+    read_sub = call_api(sub, TPC_GET_ENDPOINT, DBGetArg(key=key), DBGetResponse)
+    read_main = call_api(main, TPC_GET_ENDPOINT, DBGetArg(key=key), DBGetResponse)
     logger.info(f"TPC GET main response: {read_main}")
     logger.info(f"TPC SET sub response: {read_sub}")
     assert read_sub.entry is not None and read_sub.entry.data == data
@@ -81,7 +81,12 @@ def main():
     criteria = RequestMatchingCriteria(
         origin_names=None, dest_names=None, endpoints=None
     )
-    proxy_set_drop_rule(plant.proxy, "drop_all", criteria)
+    call_api(
+        plant.proxy,
+        PROXY_RULE_SET_ENDPOINT,
+        ProxySetRuleArg(rule="drop", id="drop_all", criteria=criteria),
+        ProxySetRuleResponse,
+    )
 
     try:
         test_tpc(main, sub)
@@ -90,7 +95,12 @@ def main():
         logger.info(f"Expected error: {e}")
         pass
 
-    proxy_clear_drop_rules(plant.proxy, ids=["drop_all"])
+    call_api(
+        plant.proxy,
+        PROXY_CLEAR_RULES_ENDPOINT,
+        ProxyClearRulesArg(rule="drop", ids=["drop_all"]),
+        ProxyClearRulesResponse,
+    )
 
     test_tpc(main, sub)
 

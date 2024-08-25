@@ -2,8 +2,21 @@
 
 import os
 import argparse
+import logging
 from datetime import datetime
+
 from pydantic import BaseModel
+
+#############################################
+## Logging
+#############################################
+
+logging.basicConfig(format="%(asctime)s %(levelname)s:%(message)s", level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+#############################################
+## Log Parsing
+#############################################
 
 
 class LogMessage(BaseModel):
@@ -11,28 +24,26 @@ class LogMessage(BaseModel):
     timestamp: datetime
     level: str
     message: str
-
-    def __str__(self):
-        return f"{self.timestamp} {self.server_name.ljust(10)} {self.level.ljust(10)} {self.message}"
+    trails: list[str]
 
 
 def filename_to_server_name(file: str):
     return file.split(".")[0]
 
 
-def parse_log(server_name: str, line: str) -> LogMessage | None:
+def parse_log(server_name: str, line: str) -> LogMessage:
     parts = line.split(" ")
-    try:
-        # example: 2024-08-19 01:07:31,426
-        timestamp = datetime.strptime(" ".join(parts[:2]), "%Y-%m-%d %H:%M:%S,%f")
-        level = parts[2]
-        message = " ".join(parts[3:])
-        return LogMessage(
-            server_name=server_name, timestamp=timestamp, level=level, message=message
-        )
-    except Exception:
-        print(f"Invalid log message format, skipped (server {server_name}):{line}")
-        return None
+    # example: 2024-08-19 01:07:31,426
+    timestamp = datetime.strptime(" ".join(parts[:2]), "%Y-%m-%d %H:%M:%S,%f")
+    level = parts[2]
+    message = " ".join(parts[3:])
+    return LogMessage(
+        server_name=server_name,
+        timestamp=timestamp,
+        level=level,
+        message=message,
+        trails=[],
+    )
 
 
 def merge_logs(input_directory: str, output_file: str):
@@ -46,8 +57,15 @@ def merge_logs(input_directory: str, output_file: str):
             ) as file:
                 lines = file.readlines()
                 server_name = filename_to_server_name(filename)
-                logs = [parse_log(server_name, line) for line in lines]
-                logs = [x for x in logs if x is not None]
+                logs: list[LogMessage] = []
+                for line in lines:
+                    try:
+                        log = parse_log(server_name, line)
+                        logs.append(log)
+                    except Exception as e:
+                        # Invalid log message format, adding to the trail of previous message
+                        assert len(logs) > 0
+                        logs[-1].trails.append(line)
                 all_lines.extend(logs)
 
     # Sort lines based on timestamps
@@ -55,8 +73,18 @@ def merge_logs(input_directory: str, output_file: str):
 
     # Write sorted lines to the output file
     with open(output_file, "w") as outfile:
-        lines = [str(x) for x in sorted_logs]
+        lines: list[str] = []
+        for log in sorted_logs:
+            line = f"{log.timestamp} {log.server_name.ljust(10)} {log.level.ljust(10)} {log.message}"
+            for trail_line in log.trails:
+                line += f"\t{trail_line}"
+            lines.append(line)
         outfile.writelines(lines)
+
+
+#############################################
+## Main
+#############################################
 
 
 def parse_cml_args():

@@ -48,7 +48,7 @@ def call_api(
     url = server.address.construct_base_url(endpoint)
     r = httpx.post(url, json=arg.model_dump())
     if r.status_code != status.HTTP_200_OK:
-        raise Exception(r.status_code)
+        raise Exception(f"status_code={r.status_code}")
     return resp_class(**r.json())
 
 

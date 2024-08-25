@@ -46,6 +46,7 @@ def main():
 
     uvicorn.run(
         "raft.server:app",
+        host="0.0.0.0",
         port=server.config.port,
         log_level=server.config.log_level.value,
         log_config=log_config,

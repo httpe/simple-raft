@@ -121,7 +121,7 @@ class DBPropagateResponse(BaseModel):
 
 class DBSetArg(BaseModel):
     key: str
-    data: str
+    data: str | None
 
 
 class DBSetResponse(BaseModel):

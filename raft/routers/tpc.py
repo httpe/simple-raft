@@ -38,13 +38,17 @@ def get_db_size():
     return len(database)
 
 
-def set_local(key: str, data: str):
-    entry = DataEntry(data=data, timestamp=datetime.now())
-    database[key] = entry
+def set_local(key: str, data: str | None):
+    if data is None:
+        entry = database[key]
+        del database[key]
+    else:
+        entry = DataEntry(data=data, timestamp=datetime.now())
+        database[key] = entry
     return entry
 
 
-def set_sync(key: str, data: str):
+def set_sync(key: str, data: str | None):
     entry = set_local(key, data)
 
     # Propagate to all siblings
@@ -82,7 +86,7 @@ async def tpc_get(arg: DBGetArg) -> DBGetResponse:
 
 class DBPropagationArg(BaseModel):
     key: str
-    data: str
+    data: str | None
 
 
 @router.post(TPC_PROPAGATE_ENDPOINT)

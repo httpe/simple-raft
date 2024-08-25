@@ -18,7 +18,9 @@ pip install -v -r requirements.txt
 
 ## Start Servers
 
-To run two servers `A` and `B`:
+All options are configured in `config.json`.
+
+To run two servers `A` and `B` and the network proxy:
 
 In one terminal:
 

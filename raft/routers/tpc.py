@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 from fastapi import APIRouter
 
-from ..singleton import server
+from ..server import Server
 from ..logger import logger
 from ..api import (
     DataEntry,
@@ -48,11 +48,10 @@ def set_local(key: str, data: str | None):
     return entry
 
 
-def set_sync(key: str, data: str | None):
+def set_sync(key: str, data: str | None, siblings: list[Server]):
     entry = set_local(key, data)
 
     # Propagate to all siblings
-    siblings = server.siblings
     arg = DBPropagationArg(key=key, data=data)
     propagations: list[DBPropagateResponse] = []
     for remote in siblings:
@@ -74,6 +73,7 @@ async def tpc_get(arg: DBGetArg) -> DBGetResponse:
     logger.info(f"Database GET {arg.key}")
     entry = get_data(arg.key)
     db_size = get_db_size()
+    server: Server = router.app.state.server
     resp = DBGetResponse(
         server_name=server.config.name,
         server_id=server.config.id,
@@ -94,6 +94,7 @@ async def tpc_propagate(arg: DBPropagationArg) -> DBPropagateResponse:
     logger.info(f"Database PROPAGATE set {arg.key} to {arg.data}")
     set_local(arg.key, arg.data)
     db_size = get_db_size()
+    server: Server = router.app.state.server
     resp = DBPropagateResponse(
         server_name=server.config.name,
         server_id=server.config.id,
@@ -107,7 +108,8 @@ async def tpc_propagate(arg: DBPropagationArg) -> DBPropagateResponse:
 async def tpc_set(arg: DBSetArg) -> DBSetResponse:
     logger.info(f"Database SET {arg.key} to {arg.data}")
 
-    _, propagations = set_sync(arg.key, arg.data)
+    server: Server = router.app.state.server
+    _, propagations = set_sync(arg.key, arg.data, server.siblings)
     db_size = get_db_size()
 
     resp = DBSetResponse(

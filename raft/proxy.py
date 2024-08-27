@@ -20,7 +20,7 @@ from .api import (
     ProxySetRuleResponse,
     ProxyClearRulesResponse,
 )
-from .singleton import server
+from .server import Server
 
 
 ############################################
@@ -46,6 +46,7 @@ async def proxy_route(req: NetworkRequest) -> Response:
     process_proxy_drop_rule(req)
     await process_proxy_timeout_rule(req)
 
+    server: Server = router.app.state.server
     target = server.get_server(req.destination.name)
 
     r = target.network.call(

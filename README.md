@@ -25,19 +25,19 @@ To run two servers `A` and `B` and the network proxy:
 In one terminal:
 
 ```powershell
-python -m raft.server ./config.json A
+python -m raft.main ./config.json A
 ```
 
 In another terminal:
 
 ```powershell
-python -m raft.server ./config.json B
+python -m raft.main ./config.json B
 ```
 
 In yet another terminal:
 
 ```powershell
-python -m raft.server ./config.json Proxy
+python -m raft.main ./config.json Proxy
 ```
 
 Logs will be written to `logs/` folder, and you can consolidate all log files into one by:
@@ -51,3 +51,9 @@ You can run test against the servers with:
 ```powershell
 python -m raft.client
 ```
+
+## TODO
+
+- Implement two phase commit
+- Develop test suits to prove its reliability
+- Implement the Raft algorithm

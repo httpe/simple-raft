@@ -19,37 +19,8 @@ from .network import (
     HttpNetworkInterfaceWithProxy,
 )
 
-
 ############################################
-## FastAPI App
-############################################
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # global server context
-    args = parse_cml_args()
-    server = get_current_server(args.plant_config, args.server_name)
-    app.state.server = server
-
-    # Setup logging
-    log_path = os.path.join("logs", f"{server.name}.log")
-    os.makedirs("logs", exist_ok=True)
-    attach_log_file(log_path)
-    logger.info(f"Will log to file: {log_path}")
-
-    yield
-    # TODO: cleanup
-    pass
-
-
-app = FastAPI(lifespan=lifespan)
-app.include_router(network_router)
-app.include_router(ping_router)
-app.include_router(tpc_router)
-
-############################################
-## Server Config & Initialization
+## Server Config & CMD Arg Parsing
 ############################################
 
 
@@ -91,12 +62,44 @@ def parse_cml_args():
     return args
 
 
-def main():
+# These must be here, uvicorn will launch the worker processes without __name__ == "__main__"
+args = parse_cml_args()
+server = get_current_server(args.plant_config, args.server_name)
+
+
+############################################
+## FastAPI App
+############################################
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # global server context
+    app.state.server = server
+
+    # Setup logging
+    log_path = os.path.join("logs", f"{server.name}.log")
+    os.makedirs("logs", exist_ok=True)
+    attach_log_file(log_path)
+    logger.info(f"Will log to file: {log_path}")
+
+    yield
+    # TODO: cleanup
+    pass
+
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(network_router)
+app.include_router(ping_router)
+app.include_router(tpc_router)
+
+
+############################################
+## Main
+############################################
+
+if __name__ == "__main__":
     log_config = get_uvicorn_log_config()
-
-    args = parse_cml_args()
-    server = get_current_server(args.plant_config, args.server_name)
-
     uvicorn.run(
         "raft.main:app",
         host="127.0.0.1",
@@ -106,7 +109,3 @@ def main():
         reload=True,
         workers=1,
     )
-
-
-if __name__ == "__main__":
-    main()

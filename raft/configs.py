@@ -13,6 +13,7 @@ class ServerConfig(BaseModel):
     port: PositiveInt
     log_level: LogLevel
     timeout: NonNegativeFloat
+    db_path: str
 
     @property
     def address(self):

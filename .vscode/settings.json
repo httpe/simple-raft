@@ -8,6 +8,7 @@
         "fastapi",
         "httpx",
         "levelprefix",
+        "linearizability",
         "pydantic",
         "uvicorn"
       ]

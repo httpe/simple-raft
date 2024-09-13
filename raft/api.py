@@ -45,6 +45,16 @@ class ProxyClearRulesArg(BaseModel):
 PROXY_CLEAR_RULES_ENDPOINT = f"{PROXY_PREFIX}/clear"
 
 ##########################################
+# Persisted Storage
+##########################################
+
+
+class DataEntry(BaseModel):
+    data: str
+    timestamp: datetime
+
+
+##########################################
 # Ping
 ##########################################
 
@@ -85,11 +95,6 @@ PING_ENDPOINT = "/ping"
 ##########################################
 
 TPC_PREFIX = "/tpc"
-
-
-class DataEntry(BaseModel):
-    data: str
-    timestamp: datetime
 
 
 # TPC DB get

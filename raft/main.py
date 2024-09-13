@@ -18,6 +18,7 @@ from .network import (
     HttpNetworkInterface,
     HttpNetworkInterfaceWithProxy,
 )
+from .persist import PersistedStorage
 
 ############################################
 ## Server Config & CMD Arg Parsing
@@ -65,7 +66,7 @@ def parse_cml_args():
 # These must be here, uvicorn will launch the worker processes without __name__ == "__main__"
 args = parse_cml_args()
 server = get_current_server(args.plant_config, args.server_name)
-
+storage = PersistedStorage(server.config.db_path)
 
 ############################################
 ## FastAPI App
@@ -76,6 +77,7 @@ server = get_current_server(args.plant_config, args.server_name)
 async def lifespan(app: FastAPI):
     # global server context
     app.state.server = server
+    app.state.storage = storage
 
     # Setup logging
     log_path = os.path.join("logs", f"{server.name}.log")

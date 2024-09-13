@@ -20,21 +20,21 @@ pip install -v -r requirements.txt
 
 All options are configured in `config.json`.
 
-To run two servers `A` and `B` and the network proxy:
+To run 3 servers `A`, `B`, `C`, and the network proxy:
 
-In one terminal:
+Run each in a separate terminal:
 
 ```powershell
 python -m raft.main ./config.json A
 ```
 
-In another terminal:
-
 ```powershell
 python -m raft.main ./config.json B
 ```
 
-In yet another terminal:
+```powershell
+python -m raft.main ./config.json C
+```
 
 ```powershell
 python -m raft.main ./config.json Proxy

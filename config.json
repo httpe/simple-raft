@@ -5,14 +5,24 @@
             "id": "abc",
             "port": 5000,
             "log_level": "info",
-            "timeout": 5.0
+            "timeout": 5.0,
+            "db_path": "db/A.json"
         },
         {
             "name": "B",
-            "id": "xyz",
+            "id": "opq",
             "port": 5001,
             "log_level": "info",
-            "timeout": 5.0
+            "timeout": 5.0,
+            "db_path": "db/B.json"
+        },
+        {
+            "name": "C",
+            "id": "xyz",
+            "port": 5002,
+            "log_level": "info",
+            "timeout": 5.0,
+            "db_path": "db/C.json"
         }
     ],
     "use_proxy": true,
@@ -21,6 +31,7 @@
         "id": "ppp",
         "port": 4999,
         "log_level": "info",
-        "timeout": 5.0
+        "timeout": 5.0,
+        "db_path": "db/Proxy.json"
     }
 }

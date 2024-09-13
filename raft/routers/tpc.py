@@ -1,12 +1,10 @@
-from datetime import datetime
-
 from pydantic import BaseModel
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from ..server import Server
+from ..persist import PersistedStorage
 from ..logger import logger
 from ..api import (
-    DataEntry,
     DBGetArg,
     DBGetResponse,
     DBSetArg,
@@ -26,30 +24,10 @@ TPC_PROPAGATE_ENDPOINT = f"{TPC_PREFIX}/propagate"
 ##################################
 
 
-# state holder
-database: dict[str, DataEntry] = {}
-
-
-def get_data(key: str):
-    return database.get(key)
-
-
-def get_db_size():
-    return len(database)
-
-
-def set_local(key: str, data: str | None):
-    if data is None:
-        entry = database[key]
-        del database[key]
-    else:
-        entry = DataEntry(data=data, timestamp=datetime.now())
-        database[key] = entry
-    return entry
-
-
-def set_sync(key: str, data: str | None, siblings: list[Server]):
-    entry = set_local(key, data)
+def set_sync(
+    storage: PersistedStorage, key: str, data: str | None, siblings: list[Server]
+):
+    entry = storage.set_persisted(key, data)
 
     # Propagate to all siblings
     arg = DBPropagationArg(key=key, data=data)
@@ -69,11 +47,16 @@ def set_sync(key: str, data: str | None, siblings: list[Server]):
 
 
 @router.post(TPC_GET_ENDPOINT)
-async def tpc_get(arg: DBGetArg) -> DBGetResponse:
+async def tpc_get(arg: DBGetArg, request: Request) -> DBGetResponse:
     logger.info(f"Database GET {arg.key}")
-    entry = get_data(arg.key)
-    db_size = get_db_size()
-    server: Server = router.app.state.server
+
+    server: Server = request.app.state.server
+    storage: PersistedStorage = request.app.state.storage
+
+    entry = storage.get_persisted(arg.key)
+
+    db_size = len(storage)
+
     resp = DBGetResponse(
         server_name=server.config.name,
         server_id=server.config.id,
@@ -90,11 +73,16 @@ class DBPropagationArg(BaseModel):
 
 
 @router.post(TPC_PROPAGATE_ENDPOINT)
-async def tpc_propagate(arg: DBPropagationArg) -> DBPropagateResponse:
+async def tpc_propagate(arg: DBPropagationArg, request: Request) -> DBPropagateResponse:
     logger.info(f"Database PROPAGATE set {arg.key} to {arg.data}")
-    set_local(arg.key, arg.data)
-    db_size = get_db_size()
-    server: Server = router.app.state.server
+
+    server: Server = request.app.state.server
+    storage: PersistedStorage = request.app.state.storage
+
+    storage.set_persisted(arg.key, arg.data)
+
+    db_size = len(storage)
+
     resp = DBPropagateResponse(
         server_name=server.config.name,
         server_id=server.config.id,
@@ -105,12 +93,14 @@ async def tpc_propagate(arg: DBPropagationArg) -> DBPropagateResponse:
 
 
 @router.post(TPC_SET_ENDPOINT)
-async def tpc_set(arg: DBSetArg) -> DBSetResponse:
+async def tpc_set(arg: DBSetArg, request: Request) -> DBSetResponse:
     logger.info(f"Database SET {arg.key} to {arg.data}")
 
-    server: Server = router.app.state.server
-    _, propagations = set_sync(arg.key, arg.data, server.siblings)
-    db_size = get_db_size()
+    server: Server = request.app.state.server
+    storage: PersistedStorage = request.app.state.storage
+
+    _, propagations = set_sync(storage, arg.key, arg.data, server.siblings)
+    db_size = len(storage)
 
     resp = DBSetResponse(
         server_name=server.config.name,

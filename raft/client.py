@@ -56,6 +56,29 @@ def gen_random_str(N: int):
     return "".join(random.choices(string.ascii_letters + string.digits, k=N))
 
 
+def proxy_drop_all(proxy: ServerConfig):
+    logger.info(f"Introducing network partition, make proxy to drop all packets")
+    criteria = RequestMatchingCriteria(
+        origin_names=None, dest_names=None, endpoints=None
+    )
+    call_api(
+        proxy,
+        PROXY_RULE_SET_ENDPOINT,
+        ProxySetRuleArg(rule="drop", id="drop_all", criteria=criteria),
+        ProxySetRuleResponse,
+    )
+
+
+def proxy_resume_all(proxy: ServerConfig):
+    logger.info(f"Resume network, clearing all proxy rules")
+    call_api(
+        proxy,
+        PROXY_CLEAR_RULES_ENDPOINT,
+        ProxyClearRulesArg(rule="drop", ids=["drop_all"]),
+        ProxyClearRulesResponse,
+    )
+
+
 #############################################
 ## Abstract Test Cases
 #############################################
@@ -71,88 +94,96 @@ class DBInterface(ABC):
         pass
 
 
-def test_two_server_sync(main: ServerConfig, sub: ServerConfig, db: DBInterface):
-    logger.info(f"Test started: simple sync between {main} and {sub}")
-    key = "test_two_server_sync"
+def test_get_set_linearizability(servers: list[ServerConfig], db: DBInterface):
+    logger.info(f"Test started: get/set linearizability between {servers}")
+
+    key = "test_get_set_linearizability"
+    servers = list(servers)
+
     # Write data
+    random.shuffle(servers)
     data = gen_random_str(10)
     logger.info(f"Writing data, key: {key}, data: {data}")
-    db.write(main, key, data)
-    assert db.read(sub, key) == data
-    assert db.read(main, key) == data
+    db.write(random.choice(servers), key, data)
+    for s in servers:
+        assert db.read(s, key) == data
+
     # Update data
+    random.shuffle(servers)
     data_alt = gen_random_str(10)
     logger.info(f"Updating data, key: {key}, data: {data_alt}")
-    db.write(sub, key, data_alt)
-    assert db.read(sub, key) == data_alt
-    assert db.read(main, key) == data_alt
+    db.write(random.choice(servers), key, data_alt)
+    for s in servers:
+        assert db.read(s, key) == data_alt
+
     # Remove data
+    random.shuffle(servers)
     logger.info(f"Removing data, key: {key}")
-    db.write(sub, key, None)
-    assert db.read(main, key) is None
-    assert db.read(sub, key) is None
-    logger.info(f"Test completed: simple sync between {main} and {sub}")
+    db.write(random.choice(servers), key, None)
+    for s in servers:
+        assert db.read(s, key) is None
+    logger.info(f"Test completed: get/set linearizability between {servers}")
 
 
 def test_eventual_consistency_after_network_partition(
     proxy: ServerConfig,
-    main: ServerConfig,
-    sub: ServerConfig,
+    servers: list[ServerConfig],
     db: DBInterface,
     timeout_sec=10,
 ):
     logger.info(
-        f"Test started: Eventual consistency after network partition between {main} and {sub}"
+        f"Test started: Eventual consistency after network partition between {servers}"
     )
 
+    servers = list(servers)
+    random.shuffle(servers)
+
     # Make proxy to drop all packets, i.e. introduce network partition
-    logger.info(f"Introducing network partition")
-    criteria = RequestMatchingCriteria(
-        origin_names=None, dest_names=None, endpoints=None
-    )
-    call_api(
-        proxy,
-        PROXY_RULE_SET_ENDPOINT,
-        ProxySetRuleArg(rule="drop", id="drop_all", criteria=criteria),
-        ProxySetRuleResponse,
-    )
+    proxy_drop_all(proxy)
 
     key = "test_eventual_consistency_after_network_partition"
 
     # Write data
     data = gen_random_str(10)
     logger.info(f"Writing data during network partition, key: {key}, data: {data}")
-    # We expect the data write and read on the main node to be successful
-    db.write(main, key, data)
-    assert db.read(main, key) == data
-    # sub node should work but doesn't need to be consistent
-    sub_data = db.read(sub, key)
+    # We expect the data write and read on a node to be successful
+    main_node = random.choice(servers)
+    db.write(main_node, key, data)
+
+    node_data: dict[str, str | None] = {}
+    for s in servers:
+        if s == main_node:
+            # main node should preserve write-after-read consistency
+            resp = db.read(s, key)
+            assert data == resp
+        else:
+            # other nodes should still work but doesn't need to be consistent
+            resp = db.read(s, key)
+        node_data[s.name] = resp
+    logger.info(f"Current data for nodes: {node_data}")
 
     # Resume network
-    logger.info(f"Resuming network")
-    call_api(
-        proxy,
-        PROXY_CLEAR_RULES_ENDPOINT,
-        ProxyClearRulesArg(rule="drop", ids=["drop_all"]),
-        ProxyClearRulesResponse,
-    )
+    proxy_resume_all(proxy)
 
     # Wait for eventual consistency to realize until timeout
     logger.info(f"Waiting for eventual consistency to realize")
     t0 = time.time()
     while time.time() - t0 < timeout_sec:
-        sub_data_next = db.read(sub, key)
-        if sub_data_next != sub_data:
-            assert sub_data_next == data
-            logger.info(f"Sub node state is synced now")
+        all_same = True
+        for s in servers:
+            resp = db.read(s, key)
+            node_data[s.name] = resp
+            all_same = all_same and resp == data
+        logger.info(f"Current data for nodes: {node_data}")
+        if all_same:
+            logger.info(f"All nodes are synced now")
             break
-        else:
-            assert sub_data_next == sub_data
-            logger.info(f"Sub node state not synced yet, will retry in 0.5s...")
+
+        logger.info(f"Sub node state not synced yet, will retry in 0.5s...")
         time.sleep(0.5)
 
     logger.info(
-        f"Test completed: Eventual consistency after network partition between {main} and {sub}"
+        f"Test completed: Eventual consistency after network partition between {servers}"
     )
 
 
@@ -160,14 +191,12 @@ def test_all(plant: PlantConfig, db: DBInterface):
     logger.info(f"Start running all tests")
 
     # Normal test
-    test_two_server_sync(plant.servers[0], plant.servers[1], db)
+    test_get_set_linearizability(plant.servers, db)
 
     # Network partition test
     assert plant.proxy is not None
     logger.info(f"Using proxy {plant.proxy}")
-    test_eventual_consistency_after_network_partition(
-        plant.proxy, plant.servers[0], plant.servers[1], db
-    )
+    test_eventual_consistency_after_network_partition(plant.proxy, plant.servers, db)
 
     logger.info(f"All tests finished")
 

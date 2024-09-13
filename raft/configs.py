@@ -1,4 +1,5 @@
 from typing_extensions import Self, Annotated
+from math import ceil
 
 from pydantic import BaseModel, PositiveInt, model_validator, Field, NonNegativeFloat
 from .logger import LogLevel
@@ -36,3 +37,9 @@ class PlantConfig(BaseModel):
         if self.use_proxy and self.proxy is None:
             raise ValueError('if "use_proxy" is true, "proxy" must be defined')
         return self
+
+    @property
+    def quorum_count(self):
+        n = len(self.servers)
+        quorum = ceil((n + 1) / 2)
+        return quorum

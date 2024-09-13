@@ -2,12 +2,12 @@
 
 ## Goals
 
-- A simple Raft implementation in Python with an abstract networking/communication layer
-- A set of tools to test and trace the reliability of the implementation, including a network proxy to simulate network partition
+- A simple Raft implementation in Python with an abstract networking/communication and persisted storage layer
+- A set of tools to test and trace the reliability of the implementation, including a network proxy to simulate network partition, packet drops/delays etc.
 
 ## Initial Setup
 
-For development, I am using Python 3.10 under Windows + PowerShell:
+For development, this repos is tested against Python 3.10 under Windows + PowerShell:
 
 ```powershell
 python -m venv venv
@@ -52,8 +52,10 @@ You can run test against the servers with:
 python -m raft.client
 ```
 
-## TODO
+We have 3 tests implemented:
 
-- Implement two phase commit
-- Develop test suits to prove its reliability
-- Implement the Raft algorithm
+1. Read-after-Write consistency test
+2. Fault tolerant linearizable consistency test
+3. Eventual consistency test
+
+Currently these tests run against the "Attiya, Bar-Noy, Dolev" (ABD) quorum get/set algorithm (`raft/routers/abd.py`), which provides fault-tolerant linearizable consistency, so it will pass the first two but not the last test.

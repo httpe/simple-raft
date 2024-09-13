@@ -51,7 +51,7 @@ class NetworkAddress(BaseModel):
 
 class NetworkInterface(ABC):
     @abstractmethod
-    def call(
+    async def call(
         self,
         destination: NetworkAddress,
         endpoint: str,
@@ -87,11 +87,14 @@ def components_to_url(
 
 
 class HttpNetworkInterface(NetworkInterface):
-    def __init__(self, self_addr: NetworkAddress) -> None:
+    def __init__(
+        self, self_addr: NetworkAddress, http_client: httpx.AsyncClient
+    ) -> None:
         super().__init__()
         self.self_addr = self_addr
+        self.client = http_client
 
-    def call(
+    async def call(
         self,
         destination: NetworkAddress,
         endpoint: str,
@@ -101,7 +104,7 @@ class HttpNetworkInterface(NetworkInterface):
         base_url = destination.construct_base_url(endpoint)
         logger.info(f"Calling {base_url} with body {body}")
         try:
-            r = httpx.post(base_url, json=body, timeout=timeout)
+            r = await self.client.post(base_url, json=body, timeout=timeout)
         except httpx.TimeoutException as e:
             raise NetworkTimeoutException()
         except Exception as e:
@@ -124,11 +127,16 @@ class NetworkRequest(BaseModel):
 
 
 class HttpNetworkInterfaceWithProxy(HttpNetworkInterface):
-    def __init__(self, self_addr: NetworkAddress, proxy_addr: NetworkAddress) -> None:
-        super().__init__(self_addr=self_addr)
+    def __init__(
+        self,
+        self_addr: NetworkAddress,
+        proxy_addr: NetworkAddress,
+        http_client: httpx.AsyncClient,
+    ) -> None:
+        super().__init__(self_addr=self_addr, http_client=http_client)
         self.proxy_addr = proxy_addr
 
-    def call(
+    async def call(
         self,
         destination: NetworkAddress,
         endpoint: str,
@@ -145,7 +153,7 @@ class HttpNetworkInterfaceWithProxy(HttpNetworkInterface):
         data = request.model_dump()
         logger.info(f"Sending request via proxy {self.proxy_addr.name}: {data}")
         try:
-            r = httpx.post(base_proxy_url, json=data, timeout=timeout)
+            r = await self.client.post(base_proxy_url, json=data, timeout=timeout)
             if r.status_code != status.HTTP_200_OK:
                 raise NetworkGeneralException(r.status_code)
             return r.text

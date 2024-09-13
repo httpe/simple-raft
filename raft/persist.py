@@ -1,15 +1,22 @@
 # Persistency Layer
+from typing import Annotated
 from datetime import datetime
 import json
 import os
 
 from pydantic import BaseModel
+from fastapi import Request, Depends
 
-from .api import DataEntry
+from .api import PersistedEntry
+
+
+class DBSection(BaseModel):
+    store: dict[str, PersistedEntry]
+    timestamp: datetime
 
 
 class Database(BaseModel):
-    store: dict[str, DataEntry]
+    sections: dict[str, DBSection]
     timestamp: datetime
 
 
@@ -21,7 +28,7 @@ class PersistedStorage:
             dir = os.path.dirname(db_path)
             if dir != "" and not os.path.exists(dir):
                 os.makedirs(dir)
-            init_db = Database(store={}, timestamp=datetime.now())
+            init_db = Database(sections={}, timestamp=datetime.now())
             self._write_disk(db_path, init_db)
 
         with open(db_path, "r") as f:
@@ -35,22 +42,40 @@ class PersistedStorage:
             db_json = db.model_dump_json()
             f.write(db_json)
 
-    def get_persisted(self, key: str) -> DataEntry | None:
-        return self.db.store.get(key)
+    def get_persisted(self, section: str, key: str) -> PersistedEntry | None:
+        db_section = self.db.sections.get(section)
+        if db_section is None:
+            return None
+        return db_section.store.get(key)
 
-    def __len__(self):
-        return len(self.db.store)
+    def get_db_size(self, section: str | None):
+        if section is None:
+            sizes = [len(x.store) for x in self.db.sections.values()]
+            return sum(sizes)
+        else:
+            db_section = self.db.sections.get(section)
+            if db_section is None:
+                return 0
+            else:
+                return len(db_section.store)
 
-    def set_persisted(self, key: str, data: str | None) -> DataEntry:
+    def set_persisted(self, section: str, key: str, data: str | None) -> PersistedEntry:
         timestamp = datetime.now()
+
+        db_section = self.db.sections.get(section)
+        if db_section is None:
+            db_section = DBSection(store={}, timestamp=timestamp)
+            self.db.sections[section] = db_section
 
         # set to memory
         if data is None:
-            entry = self.db.store[key]
-            del self.db.store[key]
+            entry = db_section.store[key]
+            del db_section.store[key]
         else:
-            entry = DataEntry(data=data, timestamp=timestamp)
-            self.db.store[key] = entry
+            entry = PersistedEntry(data=data, timestamp=timestamp)
+            db_section.store[key] = entry
+
+        db_section.timestamp = timestamp
         self.db.timestamp = timestamp
 
         # write through to disk

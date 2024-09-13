@@ -8,10 +8,14 @@ from typing import Literal
 
 PROXY_PREFIX = "/proxy"
 
+# Route request
 PROXY_ROUTE_ENDPOINT = f"{PROXY_PREFIX}/route"
 
 
 # Set Proxy Rule
+PROXY_RULE_SET_ENDPOINT = f"{PROXY_PREFIX}/set"
+
+
 class RequestMatchingCriteria(BaseModel):
     origin_names: list[str] | None
     dest_names: list[str] | None
@@ -28,9 +32,8 @@ class ProxySetRuleArg(BaseModel):
     criteria: RequestMatchingCriteria
 
 
-PROXY_RULE_SET_ENDPOINT = f"{PROXY_PREFIX}/set"
-
 # Clear Proxy Rule
+PROXY_CLEAR_RULES_ENDPOINT = f"{PROXY_PREFIX}/clear"
 
 
 class ProxyClearRulesResponse(BaseModel):
@@ -42,14 +45,12 @@ class ProxyClearRulesArg(BaseModel):
     ids: list[str] | None
 
 
-PROXY_CLEAR_RULES_ENDPOINT = f"{PROXY_PREFIX}/clear"
-
 ##########################################
 # Persisted Storage
 ##########################################
 
 
-class DataEntry(BaseModel):
+class PersistedEntry(BaseModel):
     data: str
     timestamp: datetime
 
@@ -60,6 +61,7 @@ class DataEntry(BaseModel):
 
 
 # Pong
+PONG_ENDPOINT = "/pong"
 
 
 class PongArg(BaseModel):
@@ -72,9 +74,8 @@ class PongResponse(BaseModel):
     requester_name: str
 
 
-PONG_ENDPOINT = "/pong"
-
 # Ping
+PING_ENDPOINT = "/ping"
 
 
 class PingArg(BaseModel):
@@ -87,54 +88,74 @@ class PingResponse(BaseModel):
     remote_pong_response: PongResponse
 
 
-PING_ENDPOINT = "/ping"
-
-
 ##########################################
-# Two Phase Commit
+# Attiya, Bar-Noy, Dolev (ABD) Quorum Get/Set Algorithm
 ##########################################
 
-TPC_PREFIX = "/tpc"
+ABD_PREFIX = "/abd"
 
 
-# TPC DB get
+# ABD Quorum Get
+ABD_GET_ENDPOINT = f"{ABD_PREFIX}/get"
 
 
-class DBGetArg(BaseModel):
+class ABDGetArg(BaseModel):
     key: str
 
 
-class DBGetResponse(BaseModel):
+class ABDDataEntry(BaseModel):
+    data: str | None
+    key: str
+    logical_timestamp: int
+
+
+class ABDGetResponse(BaseModel):
+    server_name: str
+    server_id: str
+    entry: ABDDataEntry | None
+
+
+# ABD Get Local
+ABD_GET_LOCAL_ENDPOINT = f"{ABD_PREFIX}/get_local"
+
+
+class ABDGetLocalArg(BaseModel):
+    key: str
+
+
+class ABDGetLocalResponse(BaseModel):
+    server_name: str
+    server_id: str
+    entry: ABDDataEntry | None
+
+
+# ABD Set Local
+ABD_SET_LOCAL_ENDPOINT = f"{ABD_PREFIX}/set_local"
+
+
+class ABDSetLocalArg(BaseModel):
+    entry: ABDDataEntry
+
+
+class ABDSetLocalResponse(BaseModel):
     server_name: str
     server_id: str
     key: str
-    db_size: int
-    entry: DataEntry | None
+    logical_timestamp: int
 
 
-TPC_GET_ENDPOINT = f"{TPC_PREFIX}/get"
-
-# TPC DB Set
-
-
-class DBPropagateResponse(BaseModel):
-    server_name: str
-    server_id: str
-    key: str
-    db_size: int
+# ABD Quorum Set
+ABD_SET_ENDPOINT = f"{ABD_PREFIX}/set"
 
 
-class DBSetArg(BaseModel):
+class ABDSetArg(BaseModel):
     key: str
     data: str | None
 
 
-class DBSetResponse(BaseModel):
+class ABDSetResponse(BaseModel):
     server_name: str
     server_id: str
     key: str
-    db_size: int
-    propagations: list[DBPropagateResponse]
-
-
-TPC_SET_ENDPOINT = f"{TPC_PREFIX}/set"
+    logical_timestamp: int
+    quorum_responses: list[ABDSetLocalResponse]

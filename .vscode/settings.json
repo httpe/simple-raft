@@ -9,6 +9,7 @@
         "httpx",
         "levelprefix",
         "linearizability",
+        "linearizable",
         "pydantic",
         "uvicorn"
       ]

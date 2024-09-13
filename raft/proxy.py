@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from asyncio import sleep
 
-from fastapi import APIRouter, Response, HTTPException, status, Request
+from fastapi import APIRouter, Response, HTTPException, status
 
 from .network import NetworkRequest
 from .logger import logger
@@ -20,7 +20,7 @@ from .api import (
     ProxySetRuleResponse,
     ProxyClearRulesResponse,
 )
-from .server import Server
+from .server import LocalHost
 
 
 ############################################
@@ -38,7 +38,7 @@ timeout_rules: dict[str, RequestMatchingCriteria] = {}
 
 
 @router.post(PROXY_ROUTE_ENDPOINT)
-async def proxy_route(req: NetworkRequest, request: Request) -> Response:
+async def proxy_route(req: NetworkRequest, localhost: LocalHost) -> Response:
     logger.info(
         f"Routing request from {req.origin.name} to {req.destination.name} for endpoint {req.endpoint} with body {req.body}"
     )
@@ -46,11 +46,10 @@ async def proxy_route(req: NetworkRequest, request: Request) -> Response:
     process_proxy_drop_rule(req)
     await process_proxy_timeout_rule(req)
 
-    server: Server = request.app.state.server
-    target = server.get_server(req.destination.name)
+    target = localhost.plant.get_server(req.destination.name)
 
-    r = target.network.call(
-        req.destination, req.endpoint, req.body, server.config.timeout
+    r = await localhost.network.call(
+        target.address, req.endpoint, req.body, localhost.config.timeout
     )
 
     return Response(content=r, media_type="application/json")

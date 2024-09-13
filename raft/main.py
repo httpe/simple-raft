@@ -12,39 +12,12 @@ from .configs import PlantConfig
 from .logger import logger, get_uvicorn_log_config, attach_log_file
 from .proxy import router as network_router
 from .routers.ping import router as ping_router
-from .routers.tpc import router as tpc_router
-from .server import Server
-from .network import (
-    HttpNetworkInterface,
-    HttpNetworkInterfaceWithProxy,
-)
-from .persist import PersistedStorage
+from .routers.abd import router as tpc_router
+from .server import LocalServer
 
 ############################################
 ## Server Config & CMD Arg Parsing
 ############################################
-
-
-def get_current_server(plant_config_path: str, server_name: str):
-    with open(plant_config_path, "r") as f:
-        config = json.load(f)
-    plant = PlantConfig(**config)
-
-    server = plant.get_server(server_name)
-    logger.info(f"Start server: {server}")
-
-    # Use proxy if set so
-    if plant.use_proxy and plant.proxy is not None and server_name != plant.proxy.name:
-        logger.warning(f"Using proxy: {plant.proxy.address}")
-        network = HttpNetworkInterfaceWithProxy(
-            self_addr=server.address, proxy_addr=plant.proxy.address
-        )
-    else:
-        network = HttpNetworkInterface(self_addr=server.address)
-
-    server = Server(plant, network, server_name)
-
-    return server
 
 
 def parse_cml_args():
@@ -65,8 +38,11 @@ def parse_cml_args():
 
 # These must be here, uvicorn will launch the worker processes without __name__ == "__main__"
 args = parse_cml_args()
-server = get_current_server(args.plant_config, args.server_name)
-storage = PersistedStorage(server.config.db_path)
+# Read plant config
+with open(args.plant_config, "r") as f:
+    config = json.load(f)
+plant_config = PlantConfig(**config)
+local_server_name = args.server_name
 
 ############################################
 ## FastAPI App
@@ -76,11 +52,13 @@ storage = PersistedStorage(server.config.db_path)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # global server context
-    app.state.server = server
-    app.state.storage = storage
+    localhost = LocalServer(plant_config, local_server_name)
+    app.state.localhost = localhost
+
+    logger.info(f"Starting server: {local_server_name}")
 
     # Setup logging
-    log_path = os.path.join("logs", f"{server.name}.log")
+    log_path = os.path.join("logs", f"{local_server_name}.log")
     os.makedirs("logs", exist_ok=True)
     attach_log_file(log_path)
     logger.info(f"Will log to file: {log_path}")
@@ -105,8 +83,8 @@ if __name__ == "__main__":
     uvicorn.run(
         "raft.main:app",
         host="127.0.0.1",
-        port=server.config.port,
-        log_level=server.config.log_level.value,
+        port=plant_config.get_server(local_server_name).port,
+        log_level=plant_config.get_server(local_server_name).log_level.value,
         log_config=log_config,
         reload=True,
         workers=1,

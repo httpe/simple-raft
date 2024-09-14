@@ -1,10 +1,33 @@
 from datetime import datetime
 from pydantic import BaseModel
-from typing import Literal
+from typing import Literal, TypeVar, Generic, Protocol
+from dataclasses import dataclass
 
-##########################################
+##############################################################
+# Base API
+##############################################################
+
+TArg = TypeVar("TArg", bound=BaseModel)
+TResp = TypeVar("TResp", bound=BaseModel)
+
+
+# @dataclass
+# class APIConceptProtocol(Protocol[TArg, TResp]):
+#     endpoint: str
+#     ArgumentClass: type[TArg]
+#     ResponseClass: type[TResp]
+
+
+@dataclass
+class APIConcept(Generic[TArg, TResp]):
+    endpoint: str
+    ArgumentClass: type[TArg]
+    ResponseClass: type[TResp]
+
+
+##############################################################
 # Proxy
-##########################################
+##############################################################
 
 PROXY_PREFIX = "/proxy"
 
@@ -13,17 +36,10 @@ PROXY_ROUTE_ENDPOINT = f"{PROXY_PREFIX}/route"
 
 
 # Set Proxy Rule
-PROXY_RULE_SET_ENDPOINT = f"{PROXY_PREFIX}/set"
-
-
 class RequestMatchingCriteria(BaseModel):
     origin_names: list[str] | None
     dest_names: list[str] | None
     endpoints: list[str] | None
-
-
-class ProxySetRuleResponse(BaseModel):
-    id: str
 
 
 class ProxySetRuleArg(BaseModel):
@@ -32,22 +48,36 @@ class ProxySetRuleArg(BaseModel):
     criteria: RequestMatchingCriteria
 
 
+class ProxySetRuleResponse(BaseModel):
+    id: str
+
+
+PROXY_SET_RULE = APIConcept[ProxySetRuleArg, ProxySetRuleResponse](
+    endpoint=f"{PROXY_PREFIX}/set",
+    ArgumentClass=ProxySetRuleArg,
+    ResponseClass=ProxySetRuleResponse,
+)
+
+
 # Clear Proxy Rule
-PROXY_CLEAR_RULES_ENDPOINT = f"{PROXY_PREFIX}/clear"
+class ProxyClearRulesArg(BaseModel):
+    rule: Literal["drop", "timeout"]
+    ids: list[str] | None
 
 
 class ProxyClearRulesResponse(BaseModel):
     ids: list[str]
 
 
-class ProxyClearRulesArg(BaseModel):
-    rule: Literal["drop", "timeout"]
-    ids: list[str] | None
+PROXY_CLEAR_RULE = APIConcept[ProxyClearRulesArg, ProxyClearRulesResponse](
+    endpoint=f"{PROXY_PREFIX}/clear",
+    ArgumentClass=ProxyClearRulesArg,
+    ResponseClass=ProxyClearRulesResponse,
+)
 
-
-##########################################
+##############################################################
 # Persisted Storage
-##########################################
+##############################################################
 
 
 class PersistedEntry(BaseModel):
@@ -55,29 +85,28 @@ class PersistedEntry(BaseModel):
     timestamp: datetime
 
 
-##########################################
+##############################################################
 # Ping
-##########################################
+##############################################################
 
 
 # Pong
-PONG_ENDPOINT = "/pong"
-
-
 class PongArg(BaseModel):
     requester: str
 
 
-class PongResponse(BaseModel):
+class PongResp(BaseModel):
     server_name: str
     server_id: str
     requester_name: str
 
 
+PONG = APIConcept[PongArg, PongResp](
+    endpoint="/pong", ArgumentClass=PongArg, ResponseClass=PongResp
+)
+
+
 # Ping
-PING_ENDPOINT = "/ping"
-
-
 class PingArg(BaseModel):
     server_name: str
 
@@ -85,22 +114,19 @@ class PingArg(BaseModel):
 class PingResponse(BaseModel):
     server_name: str
     server_id: str
-    remote_pong_response: PongResponse
+    remote_pong_response: PongResp
 
 
-##########################################
+PING = APIConcept[PingArg, PingResponse](
+    endpoint="/ping", ArgumentClass=PingArg, ResponseClass=PingResponse
+)
+
+
+##############################################################
 # Attiya, Bar-Noy, Dolev (ABD) Quorum Get/Set Algorithm
-##########################################
+##############################################################
 
 ABD_PREFIX = "/abd"
-
-
-# ABD Quorum Get
-ABD_GET_ENDPOINT = f"{ABD_PREFIX}/get"
-
-
-class ABDGetArg(BaseModel):
-    key: str
 
 
 class ABDDataEntry(BaseModel):
@@ -109,16 +135,23 @@ class ABDDataEntry(BaseModel):
     logical_timestamp: int
 
 
+# ABD Quorum Get
+class ABDGetArg(BaseModel):
+    key: str
+
+
 class ABDGetResponse(BaseModel):
     server_name: str
     server_id: str
     entry: ABDDataEntry | None
 
 
+ABD_GET = APIConcept[ABDGetArg, ABDGetResponse](
+    endpoint=f"{ABD_PREFIX}/get", ArgumentClass=ABDGetArg, ResponseClass=ABDGetResponse
+)
+
+
 # ABD Get Local
-ABD_GET_LOCAL_ENDPOINT = f"{ABD_PREFIX}/get_local"
-
-
 class ABDGetLocalArg(BaseModel):
     key: str
 
@@ -129,10 +162,14 @@ class ABDGetLocalResponse(BaseModel):
     entry: ABDDataEntry | None
 
 
+ABD_GET_LOCAL = APIConcept[ABDGetLocalArg, ABDGetLocalResponse](
+    endpoint=f"{ABD_PREFIX}/get_local",
+    ArgumentClass=ABDGetLocalArg,
+    ResponseClass=ABDGetLocalResponse,
+)
+
+
 # ABD Set Local
-ABD_SET_LOCAL_ENDPOINT = f"{ABD_PREFIX}/set_local"
-
-
 class ABDSetLocalArg(BaseModel):
     entry: ABDDataEntry
 
@@ -144,10 +181,14 @@ class ABDSetLocalResponse(BaseModel):
     logical_timestamp: int
 
 
+ABD_SET_LOCAL = APIConcept[ABDSetLocalArg, ABDSetLocalResponse](
+    endpoint=f"{ABD_PREFIX}/set_local",
+    ArgumentClass=ABDSetLocalArg,
+    ResponseClass=ABDSetLocalResponse,
+)
+
+
 # ABD Quorum Set
-ABD_SET_ENDPOINT = f"{ABD_PREFIX}/set"
-
-
 class ABDSetArg(BaseModel):
     key: str
     data: str | None
@@ -159,3 +200,10 @@ class ABDSetResponse(BaseModel):
     key: str
     logical_timestamp: int
     quorum_responses: list[ABDSetLocalResponse]
+
+
+ABD_SET = APIConcept[ABDSetArg, ABDSetResponse](
+    endpoint=f"{ABD_PREFIX}/set",
+    ArgumentClass=ABDSetArg,
+    ResponseClass=ABDSetResponse,
+)

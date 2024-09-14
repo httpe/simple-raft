@@ -1,39 +1,34 @@
 from fastapi import APIRouter
 
-from ..server import LocalHost
+from ..server import LocalHost, implement_api
 from ..logger import logger
-from ..api import (
-    PING_ENDPOINT,
-    PONG_ENDPOINT,
-    PongArg,
-    PongResponse,
-    PingArg,
-    PingResponse,
-)
+from ..api import PONG, PongArg, PING, PingArg
 
 router = APIRouter(tags=["Ping"])
 
 
-@router.post(PONG_ENDPOINT)
-async def pong(arg: PongArg, server: LocalHost) -> PongResponse:
+@implement_api(router, PONG)
+async def pong(arg: PongArg, localhost: LocalHost):
     logger.info(f"Pong requested by {arg.requester}")
-    resp = PongResponse(
-        server_name=server.config.name,
-        server_id=server.config.id,
+    resp = PONG.ResponseClass(
+        server_name=localhost.config.name,
+        server_id=localhost.config.id,
         requester_name=arg.requester,
     )
     return resp
 
 
-@router.post(PING_ENDPOINT)
-async def ping(arg: PingArg, localhost: LocalHost) -> PingResponse:
+@implement_api(router, PING)
+async def ping(arg: PingArg, localhost: LocalHost):
     logger.info(f"Ping-ing {arg.server_name}")
     remote = localhost.plant.get_server(arg.server_name)
     remote_resp = await localhost.call(
-        remote, PONG_ENDPOINT, PongResponse, PongArg(requester=localhost.name)
+        remote,
+        PONG,
+        PONG.ArgumentClass(requester=localhost.name),
     )
     logger.info(f"Pong respond received from {remote.name}")
-    resp = PingResponse(
+    resp = PING.ResponseClass(
         server_name=localhost.config.name,
         server_id=localhost.config.id,
         remote_pong_response=remote_resp,

@@ -2,25 +2,21 @@
 
 from fastapi import APIRouter
 
-from ..server import LocalServer, LocalHost
+from ..server import LocalHost, implement_api
 from ..logger import logger
 from ..api import (
     ABDDataEntry,
     ABDGetArg,
-    ABDGetResponse,
     ABDSetArg,
-    ABDSetResponse,
-    ABDSetLocalResponse,
     ABDSetLocalArg,
     ABDGetLocalArg,
-    ABDGetLocalResponse,
-    ABD_GET_LOCAL_ENDPOINT,
-    ABD_GET_ENDPOINT,
-    ABD_SET_ENDPOINT,
-    ABD_SET_LOCAL_ENDPOINT,
+    ABD_GET,
+    ABD_GET_LOCAL,
+    ABD_SET,
+    ABD_SET_LOCAL,
 )
 
-router = APIRouter(tags=["Two Phase Commit"])
+router = APIRouter(tags=["ABD"])
 
 ABD_LOCAL_STORAGE_SECTION = "ABD"
 
@@ -29,7 +25,7 @@ ABD_LOCAL_STORAGE_SECTION = "ABD"
 ##################################
 
 
-def get_persisted(localhost: LocalServer, key: str) -> ABDDataEntry | None:
+def get_persisted(localhost: LocalHost, key: str) -> ABDDataEntry | None:
     persisted_entry = localhost.storage.get_persisted(ABD_LOCAL_STORAGE_SECTION, key)
     if persisted_entry is None:
         entry = None
@@ -38,26 +34,27 @@ def get_persisted(localhost: LocalServer, key: str) -> ABDDataEntry | None:
     return entry
 
 
-def set_persisted(localhost: LocalServer, key: str, entry: ABDDataEntry):
+def set_persisted(localhost: LocalHost, key: str, entry: ABDDataEntry):
     localhost.storage.set_persisted(
         ABD_LOCAL_STORAGE_SECTION, key, entry.model_dump_json()
     )
 
 
-def get_local_logical_timestamp(localhost: LocalServer):
+def get_local_logical_timestamp(localhost: LocalHost):
     ts = localhost.storage.get_persisted(
         ABD_LOCAL_STORAGE_SECTION, "ABD_LOCAL_LOGICAL_TIMESTAMP"
     )
     if ts is None:
+        ts = 0
         localhost.storage.set_persisted(
-            ABD_LOCAL_STORAGE_SECTION, "ABD_LOCAL_LOGICAL_TIMESTAMP", str(0)
+            ABD_LOCAL_STORAGE_SECTION, "ABD_LOCAL_LOGICAL_TIMESTAMP", str(ts)
         )
-        return 0
+        return ts
     else:
         return int(ts.data)
 
 
-def set_local_logical_timestamp(localhost: LocalServer, ts: int):
+def set_local_logical_timestamp(localhost: LocalHost, ts: int):
     localhost.storage.set_persisted(
         ABD_LOCAL_STORAGE_SECTION, "ABD_LOCAL_LOGICAL_TIMESTAMP", str(ts)
     )
@@ -68,7 +65,7 @@ def set_local_logical_timestamp(localhost: LocalServer, ts: int):
 ##################################
 
 
-async def set_quorum(localhost: LocalServer, key: str, data: str | None):
+async def set_quorum(localhost: LocalHost, key: str, data: str | None):
     ts = get_local_logical_timestamp(localhost)
     ts += 1
     set_local_logical_timestamp(localhost, ts)
@@ -80,8 +77,7 @@ async def set_quorum(localhost: LocalServer, key: str, data: str | None):
     quorum_responses = await localhost.call_multiple(
         localhost.siblings,
         localhost.plant.quorum_count - 1,
-        ABD_SET_LOCAL_ENDPOINT,
-        ABDSetLocalResponse,
+        ABD_SET_LOCAL,
         arg,
     )
 
@@ -91,7 +87,7 @@ async def set_quorum(localhost: LocalServer, key: str, data: str | None):
     return entry, quorum_responses
 
 
-async def get_and_repair_quorum(localhost: LocalServer, key: str):
+async def get_and_repair_quorum(localhost: LocalHost, key: str):
     # Quorum read
     get_arg = ABDGetLocalArg(key=key)
     siblings = localhost.siblings
@@ -99,7 +95,7 @@ async def get_and_repair_quorum(localhost: LocalServer, key: str):
 
     # ourself is always good
     quorum_get_responses = await localhost.call_multiple(
-        siblings, quorum_count - 1, ABD_GET_LOCAL_ENDPOINT, ABDGetLocalResponse, get_arg
+        siblings, quorum_count - 1, ABD_GET_LOCAL, get_arg
     )
 
     local_entry = get_persisted(localhost, key)
@@ -134,8 +130,7 @@ async def get_and_repair_quorum(localhost: LocalServer, key: str):
         await localhost.call_multiple(
             nodes_need_repair,
             repair_quorum_count,
-            ABD_SET_LOCAL_ENDPOINT,
-            ABDSetLocalResponse,
+            ABD_SET_LOCAL,
             set_arg,
         )
 
@@ -147,13 +142,13 @@ async def get_and_repair_quorum(localhost: LocalServer, key: str):
 ##################################
 
 
-@router.post(ABD_GET_ENDPOINT)
-async def abd_get(arg: ABDGetArg, localhost: LocalHost) -> ABDGetResponse:
+@implement_api(router, ABD_GET)
+async def abd_get(arg: ABDGetArg, localhost: LocalHost):
     logger.info(f"ABD GET {arg.key}")
 
     entry = await get_and_repair_quorum(localhost, arg.key)
 
-    resp = ABDGetResponse(
+    resp = ABD_GET.ResponseClass(
         server_name=localhost.config.name,
         server_id=localhost.config.id,
         entry=entry,
@@ -161,15 +156,13 @@ async def abd_get(arg: ABDGetArg, localhost: LocalHost) -> ABDGetResponse:
     return resp
 
 
-@router.post(ABD_GET_LOCAL_ENDPOINT)
-async def abd_get_local(
-    arg: ABDGetLocalArg, localhost: LocalHost
-) -> ABDGetLocalResponse:
+@implement_api(router, ABD_GET_LOCAL)
+async def abd_get_local(arg: ABDGetLocalArg, localhost: LocalHost):
     logger.info(f"ABD GET_LOCAL {arg.key}")
 
     entry = get_persisted(localhost, arg.key)
 
-    resp = ABDGetLocalResponse(
+    resp = ABD_GET_LOCAL.ResponseClass(
         server_name=localhost.config.name,
         server_id=localhost.config.id,
         entry=entry,
@@ -177,10 +170,8 @@ async def abd_get_local(
     return resp
 
 
-@router.post(ABD_SET_LOCAL_ENDPOINT)
-async def abd_set_local(
-    arg: ABDSetLocalArg, localhost: LocalHost
-) -> ABDSetLocalResponse:
+@implement_api(router, ABD_SET_LOCAL)
+async def abd_set_local(arg: ABDSetLocalArg, localhost: LocalHost):
     entry = arg.entry
     logger.info(f"ABD SET_LOCAL {entry.key} to {entry.data}")
 
@@ -192,7 +183,7 @@ async def abd_set_local(
         set_local_logical_timestamp(localhost, ts)
 
     # response in all cases, whether we saved it to DB or not
-    resp = ABDSetLocalResponse(
+    resp = ABD_SET_LOCAL.ResponseClass(
         server_name=localhost.config.name,
         server_id=localhost.config.id,
         key=entry.key,
@@ -201,13 +192,13 @@ async def abd_set_local(
     return resp
 
 
-@router.post(ABD_SET_ENDPOINT)
-async def abd_set(arg: ABDSetArg, localhost: LocalHost) -> ABDSetResponse:
+@implement_api(router, ABD_SET)
+async def abd_set(arg: ABDSetArg, localhost: LocalHost):
     logger.info(f"ABD SET {arg.key} to {arg.data}")
 
     entry, quorum_resp = await set_quorum(localhost, arg.key, arg.data)
 
-    resp = ABDSetResponse(
+    resp = ABD_SET.ResponseClass(
         server_name=localhost.config.name,
         server_id=localhost.config.id,
         key=entry.key,

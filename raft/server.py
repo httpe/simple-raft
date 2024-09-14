@@ -1,9 +1,13 @@
-from typing import TypeVar, Type, Annotated
+from typing import (
+    Annotated,
+    Callable,
+    Coroutine,
+    Any,
+)
 from asyncio import create_task, wait, Task
 from asyncio.tasks import FIRST_COMPLETED
 
-from pydantic import BaseModel
-from fastapi import Request, Depends
+from fastapi import Request, Depends, APIRouter
 
 from .configs import PlantConfig, ServerConfig
 from .network import (
@@ -12,8 +16,7 @@ from .network import (
 )
 from .persist import PersistedStorage
 from .logger import logger
-
-TResp = TypeVar("TResp", bound=BaseModel)
+from .api import APIConcept, TArg, TResp
 
 
 class LocalServer:
@@ -35,9 +38,8 @@ class LocalServer:
     async def call(
         self,
         server: ServerConfig,
-        endpoint: str,
-        resp_class: Type[TResp],
-        arg: BaseModel | None = None,
+        api: APIConcept[TArg, TResp],
+        arg: TArg | None = None,
     ) -> TResp:
 
         if arg is None:
@@ -47,12 +49,12 @@ class LocalServer:
 
         resp = await self.network.call(
             server.address,
-            endpoint,
+            api.endpoint,
             body=body,
             timeout=self.config.timeout,
         )
 
-        return resp_class.model_validate_json(resp)
+        return api.ResponseClass.model_validate_json(resp)
 
     @property
     def siblings(self):
@@ -62,12 +64,11 @@ class LocalServer:
         self,
         servers: list[ServerConfig],
         min_resp_required: int,
-        endpoint: str,
-        resp_class: Type[TResp],
-        arg: BaseModel | None = None,
+        api: APIConcept[TArg, TResp],
+        arg: TArg | None = None,
     ) -> list[TResp]:
         logger.info(
-            f"Calling endpoint {endpoint} for at least {min_resp_required} responses"
+            f"Calling endpoint {api.endpoint} for at least {min_resp_required} responses"
         )
 
         assert min_resp_required <= len(servers)
@@ -75,7 +76,7 @@ class LocalServer:
         pending: set[Task[TResp]] = set()
 
         for remote in servers:
-            req = create_task(self.call(remote, endpoint, resp_class, arg))
+            req = create_task(self.call(remote, api, arg))
             pending.add(req)
 
         # Wait for the required count of responses
@@ -89,21 +90,21 @@ class LocalServer:
                     r = await task
                     responses.append(r)
                     logger.info(
-                        f"Received a response from endpoint {endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
+                        f"Received a response from endpoint {api.endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
                     )
                 except NetworkException as e:
                     n_errored += 1
                     logger.error(
-                        f"Network error from endpoint {endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
+                        f"Network error from endpoint {api.endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
                     )
                     if len(responses) + len(pending) < min_resp_required:
-                        msg = f"Failed obtaining required count of responses for endpoint {endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
+                        msg = f"Failed obtaining required count of responses for endpoint {api.endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
                         logger.error(msg)
                         raise NetworkException(msg) from e
 
             if len(responses) >= min_resp_required:
                 logger.info(
-                    f"Required responses of endpoint {endpoint} gathered, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
+                    f"Required responses of endpoint {api.endpoint} gathered, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
                 )
                 break
 
@@ -115,3 +116,17 @@ async def _local_server(request: Request) -> LocalServer:
 
 
 LocalHost = Annotated[LocalServer, Depends(_local_server)]
+
+#####################################################################
+## API
+#####################################################################
+
+
+def implement_api(router: APIRouter, api: APIConcept[TArg, TResp]):
+    def process(process_func: Callable[[TArg, LocalHost], Coroutine[Any, Any, TResp]]):
+        wrapper = router.post(api.endpoint, response_model=api.ResponseClass)(
+            process_func
+        )
+        return wrapper
+
+    return process

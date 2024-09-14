@@ -13,18 +13,15 @@ from pydantic import BaseModel
 
 from .configs import PlantConfig, ServerConfig
 from .api import (
-    ABD_GET_ENDPOINT,
+    APIConcept,
+    ABD_GET,
     ABDGetArg,
-    ABDGetResponse,
-    ABD_SET_ENDPOINT,
+    ABD_SET,
     ABDSetArg,
-    ABDSetResponse,
     RequestMatchingCriteria,
-    PROXY_RULE_SET_ENDPOINT,
+    PROXY_SET_RULE,
     ProxySetRuleArg,
-    ProxySetRuleResponse,
-    PROXY_CLEAR_RULES_ENDPOINT,
-    ProxyClearRulesResponse,
+    PROXY_CLEAR_RULE,
     ProxyClearRulesArg,
 )
 
@@ -39,6 +36,7 @@ logger = logging.getLogger(__name__)
 ## Constants
 #############################################
 
+TArg = TypeVar("TArg", bound=BaseModel)
 TResp = TypeVar("TResp", bound=BaseModel)
 
 #############################################
@@ -46,14 +44,12 @@ TResp = TypeVar("TResp", bound=BaseModel)
 #############################################
 
 
-def call_api(
-    server: ServerConfig, endpoint: str, arg: BaseModel, resp_class: Type[TResp]
-) -> TResp:
-    url = server.address.construct_base_url(endpoint)
+def call_api(server: ServerConfig, api: APIConcept[TArg, TResp], arg: TArg) -> TResp:
+    url = server.address.construct_base_url(api.endpoint)
     r = httpx.post(url, json=arg.model_dump())
     if r.status_code != status.HTTP_200_OK:
         raise Exception(f"status_code={r.status_code}")
-    return resp_class(**r.json())
+    return api.ResponseClass(**r.json())
 
 
 def gen_random_str(N: int):
@@ -75,21 +71,13 @@ def proxy_set_rule(
         origin_names=orig_names, dest_names=dest_names, endpoints=endpoints
     )
     call_api(
-        proxy,
-        PROXY_RULE_SET_ENDPOINT,
-        ProxySetRuleArg(rule=rule, id=id, criteria=criteria),
-        ProxySetRuleResponse,
+        proxy, PROXY_SET_RULE, ProxySetRuleArg(rule=rule, id=id, criteria=criteria)
     )
 
 
 def proxy_clear_rules(proxy: ServerConfig, ids: list[str] | None):
     logger.info(f"Resume network, clearing proxy rules of ids {ids}")
-    call_api(
-        proxy,
-        PROXY_CLEAR_RULES_ENDPOINT,
-        ProxyClearRulesArg(rule="drop", ids=ids),
-        ProxyClearRulesResponse,
-    )
+    call_api(proxy, PROXY_CLEAR_RULE, ProxyClearRulesArg(rule="drop", ids=ids))
 
 
 #############################################
@@ -299,15 +287,13 @@ def test_all(plant: PlantConfig, db: DBInterface):
 
 class ABD(DBInterface):
     def read(self, server: ServerConfig, key: str) -> str | None:
-        r = call_api(server, ABD_GET_ENDPOINT, ABDGetArg(key=key), ABDGetResponse)
+        r = call_api(server, ABD_GET, ABDGetArg(key=key))
         if r.entry is None:
             return None
         return r.entry.data
 
     def write(self, server: ServerConfig, key: str, data: str | None):
-        call_api(
-            server, ABD_SET_ENDPOINT, ABDSetArg(key=key, data=data), ABDSetResponse
-        )
+        call_api(server, ABD_SET, ABDSetArg(key=key, data=data))
 
 
 #############################################

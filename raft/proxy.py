@@ -12,15 +12,13 @@ from .network import NetworkRequest
 from .logger import logger
 from .api import (
     PROXY_ROUTE_ENDPOINT,
-    PROXY_RULE_SET_ENDPOINT,
-    PROXY_CLEAR_RULES_ENDPOINT,
+    PROXY_SET_RULE,
+    PROXY_CLEAR_RULE,
     RequestMatchingCriteria,
     ProxySetRuleArg,
     ProxyClearRulesArg,
-    ProxySetRuleResponse,
-    ProxyClearRulesResponse,
 )
-from .server import LocalHost
+from .server import LocalHost, implement_api
 
 
 ############################################
@@ -62,18 +60,18 @@ async def proxy_route(req: NetworkRequest, localhost: LocalHost) -> Response:
 INFINITE_SLEEP_PERIOD = 60 * 60 * 24 * 30
 
 
-@router.post(PROXY_RULE_SET_ENDPOINT)
-async def set_rule(arg: ProxySetRuleArg) -> ProxySetRuleResponse:
+@implement_api(router, PROXY_SET_RULE)
+async def set_rule(arg: ProxySetRuleArg, localhost: LocalHost):
     if arg.rule == "drop":
         drop_rules[arg.id] = arg.criteria
     else:
         assert arg.rule == "timeout"
         timeout_rules[arg.id] = arg.criteria
-    return ProxySetRuleResponse(id=arg.id)
+    return PROXY_SET_RULE.ResponseClass(id=arg.id)
 
 
-@router.post(PROXY_CLEAR_RULES_ENDPOINT)
-async def clear_rules(arg: ProxyClearRulesArg) -> ProxyClearRulesResponse:
+@implement_api(router, PROXY_CLEAR_RULE)
+async def clear_rules(arg: ProxyClearRulesArg, localhost: LocalHost):
     ids: list[str] = []
     if arg.rule == "drop":
         if arg.ids is None:
@@ -92,7 +90,7 @@ async def clear_rules(arg: ProxyClearRulesArg) -> ProxyClearRulesResponse:
             for id in arg.ids:
                 ids.append(id)
                 timeout_rules.pop(id)
-    return ProxyClearRulesResponse(ids=ids)
+    return PROXY_CLEAR_RULE.ResponseClass(ids=ids)
 
 
 def process_proxy_drop_rule(request: NetworkRequest):

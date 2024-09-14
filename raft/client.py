@@ -35,6 +35,10 @@ from .api import (
 logging.basicConfig(format="%(asctime)s %(levelname)s:%(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+#############################################
+## Constants
+#############################################
+
 TResp = TypeVar("TResp", bound=BaseModel)
 
 #############################################
@@ -78,7 +82,7 @@ def proxy_set_rule(
     )
 
 
-def proxy_clear_rules(proxy: ServerConfig, ids: list[str]):
+def proxy_clear_rules(proxy: ServerConfig, ids: list[str] | None):
     logger.info(f"Resume network, clearing proxy rules of ids {ids}")
     call_api(
         proxy,
@@ -269,13 +273,16 @@ def test_eventual_consistency(
 def test_all(plant: PlantConfig, db: DBInterface):
     logger.info(f"Start running all tests")
 
+    assert plant.proxy is not None
+    logger.info(f"Using proxy {plant.proxy}")
+
+    # clear all proxy rules before running tests
+    proxy_clear_rules(plant.proxy, None)
+
     # Normal test
     test_read_after_write_consistency(plant.servers, db)  # ABD should pass this
 
     # Fault tolerance tests
-    assert plant.proxy is not None
-    logger.info(f"Using proxy {plant.proxy}")
-
     test_fault_tolerant_linearizability(
         plant.proxy, plant.servers, db
     )  # ABD should pass this

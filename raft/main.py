@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 import uvicorn
+from httpx import AsyncClient
 
 from .configs import PlantConfig
 from .logger import logger, get_uvicorn_log_config, attach_log_file
@@ -14,6 +15,7 @@ from .proxy import router as network_router
 from .routers.ping import router as ping_router
 from .routers.abd import router as tpc_router
 from .server import LocalServer
+from .network import HttpNetworkInterface, HttpNetworkInterfaceWithProxy
 
 ############################################
 ## Server Config & CMD Arg Parsing
@@ -38,10 +40,12 @@ def parse_cml_args():
 
 # These must be here, uvicorn will launch the worker processes without __name__ == "__main__"
 args = parse_cml_args()
+
 # Read plant config
 with open(args.plant_config, "r") as f:
     config = json.load(f)
 plant_config = PlantConfig(**config)
+
 local_server_name = args.server_name
 
 ############################################
@@ -51,20 +55,43 @@ local_server_name = args.server_name
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # global server context
-    localhost = LocalServer(plant_config, local_server_name)
-    app.state.localhost = localhost
-
-    logger.info(f"Starting server: {local_server_name}")
-
     # Setup logging
     log_path = os.path.join("logs", f"{local_server_name}.log")
     os.makedirs("logs", exist_ok=True)
     attach_log_file(log_path)
     logger.info(f"Will log to file: {log_path}")
 
+    logger.info(f"Starting server: {local_server_name}")
+    local_server_config = plant_config.get_server(local_server_name)
+
+    # Initialize local network interface
+    http_client = AsyncClient()
+    # Use proxy if set so
+    if (
+        plant_config.use_proxy
+        and plant_config.proxy is not None
+        and local_server_name != plant_config.proxy.name
+    ):
+        logger.warning(f"Using proxy: {plant_config.proxy.address}")
+        network = HttpNetworkInterfaceWithProxy(
+            self_addr=local_server_config.address,
+            proxy_addr=plant_config.proxy.address,
+            http_client=http_client,
+        )
+    else:
+        network = HttpNetworkInterface(
+            self_addr=local_server_config.address, http_client=http_client
+        )
+
+    # global server context
+    localhost = LocalServer(plant_config, local_server_name, network)
+    app.state.localhost = localhost
+
     yield
-    # TODO: cleanup
+
+    # clean up
+    await http_client.aclose()
+
     pass
 
 

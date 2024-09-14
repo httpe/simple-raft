@@ -30,7 +30,7 @@ async def ping(arg: PingArg, localhost: LocalHost) -> PingResponse:
     logger.info(f"Ping-ing {arg.server_name}")
     remote = localhost.plant.get_server(arg.server_name)
     remote_resp = await localhost.call(
-        remote, "/pong", PongResponse, PongArg(requester=localhost.name)
+        remote, PONG_ENDPOINT, PongResponse, PongArg(requester=localhost.name)
     )
     logger.info(f"Pong respond received from {remote.name}")
     resp = PingResponse(

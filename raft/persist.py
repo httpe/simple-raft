@@ -1,11 +1,9 @@
 # Persistency Layer
-from typing import Annotated
 from datetime import datetime
 import json
 import os
 
 from pydantic import BaseModel
-from fastapi import Request, Depends
 
 from .api import PersistedEntry
 

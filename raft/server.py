@@ -1,16 +1,12 @@
 from typing import TypeVar, Type, Annotated
-from functools import lru_cache
 from asyncio import create_task, wait, Task
 from asyncio.tasks import FIRST_COMPLETED
 
 from pydantic import BaseModel
 from fastapi import Request, Depends
-from httpx import AsyncClient
 
 from .configs import PlantConfig, ServerConfig
 from .network import (
-    NetworkInterface,
-    HttpNetworkInterfaceWithProxy,
     HttpNetworkInterface,
     NetworkException,
 )
@@ -20,42 +16,12 @@ from .logger import logger
 TResp = TypeVar("TResp", bound=BaseModel)
 
 
-class Server:
-    def __init__(
-        self, plant: PlantConfig, network: NetworkInterface, name: str
-    ) -> None:
-        self.plant = plant
-        self.name = name
-        self.config = plant.get_server(name)
-        self.network = network
-
-    def get_server(self, name: str):
-        return self.__class__(self.plant, self.network, name)
-
-
 class LocalServer:
-    def __init__(self, plant: PlantConfig, local_name: str) -> None:
+    def __init__(
+        self, plant: PlantConfig, local_name: str, network: HttpNetworkInterface
+    ) -> None:
 
         local_server_config = plant.get_server(local_name)
-
-        # Initialize local network interface
-        http_client = AsyncClient()
-        # Use proxy if set so
-        if (
-            plant.use_proxy
-            and plant.proxy is not None
-            and local_name != plant.proxy.name
-        ):
-            logger.warning(f"Using proxy: {plant.proxy.address}")
-            network = HttpNetworkInterfaceWithProxy(
-                self_addr=local_server_config.address,
-                proxy_addr=plant.proxy.address,
-                http_client=http_client,
-            )
-        else:
-            network = HttpNetworkInterface(
-                self_addr=local_server_config.address, http_client=http_client
-            )
 
         # Initialize local storage
         storage = PersistedStorage(local_server_config.db_path)

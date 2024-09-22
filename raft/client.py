@@ -189,6 +189,7 @@ def test_eventual_consistency(
     servers: list[ServerConfig],
     db: DBInterface,
     timeout_sec=10,
+    read_faulty_nodes=False,
 ):
     server_names = [x.name for x in servers]
 
@@ -220,6 +221,8 @@ def test_eventual_consistency(
 
     node_data: dict[str, str | None] = {}
     for s in servers:
+        if not read_faulty_nodes and s not in good_nodes:
+            continue
         node_data[s.name] = db.read(s, key)
         if s in good_nodes:
             # good nodes should preserve read-after-write consistency
@@ -272,7 +275,8 @@ def test_all(plant: PlantConfig, db: DBInterface):
         plant.proxy, plant.servers, db
     )  # ABD should pass this
 
-    test_eventual_consistency(plant.proxy, plant.servers, db)  # ABD will FAIL this
+    # ABD will fail this if we try to read faulty node
+    test_eventual_consistency(plant.proxy, plant.servers, db, read_faulty_nodes=False)
 
     logger.info(f"All tests finished")
 

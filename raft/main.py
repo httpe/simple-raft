@@ -13,7 +13,7 @@ from .configs import PlantConfig
 from .logger import logger, get_uvicorn_log_config, attach_log_file
 from .proxy import router as network_router
 from .routers.ping import router as ping_router
-from .routers.abd import router as tpc_router
+from .routers.abd import router as abd_router
 from .server import LocalServer
 from .network import HttpNetworkInterface, HttpNetworkInterfaceWithProxy
 
@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(network_router)
 app.include_router(ping_router)
-app.include_router(tpc_router)
+app.include_router(abd_router)
 
 
 ############################################

@@ -15,14 +15,10 @@ from .configs import PlantConfig, ServerConfig
 from .api import (
     APIConcept,
     ABD_GET,
-    ABDGetArg,
     ABD_SET,
-    ABDSetArg,
     RequestMatchingCriteria,
     PROXY_SET_RULE,
-    ProxySetRuleArg,
     PROXY_CLEAR_RULE,
-    ProxyClearRulesArg,
 )
 
 #############################################
@@ -71,13 +67,17 @@ def proxy_set_rule(
         origin_names=orig_names, dest_names=dest_names, endpoints=endpoints
     )
     call_api(
-        proxy, PROXY_SET_RULE, ProxySetRuleArg(rule=rule, id=id, criteria=criteria)
+        proxy,
+        PROXY_SET_RULE,
+        PROXY_SET_RULE.ArgumentClass(rule=rule, id=id, criteria=criteria),
     )
 
 
 def proxy_clear_rules(proxy: ServerConfig, ids: list[str] | None):
     logger.info(f"Resume network, clearing proxy rules of ids {ids}")
-    call_api(proxy, PROXY_CLEAR_RULE, ProxyClearRulesArg(rule="drop", ids=ids))
+    call_api(
+        proxy, PROXY_CLEAR_RULE, PROXY_CLEAR_RULE.ArgumentClass(rule="drop", ids=ids)
+    )
 
 
 #############################################
@@ -129,10 +129,7 @@ def test_read_after_write_consistency(servers: list[ServerConfig], db: DBInterfa
 
 
 def test_fault_tolerant_linearizability(
-    proxy: ServerConfig,
-    servers: list[ServerConfig],
-    db: DBInterface,
-    timeout_sec=10,
+    proxy: ServerConfig, servers: list[ServerConfig], db: DBInterface
 ):
     server_names = [x.name for x in servers]
 
@@ -287,13 +284,13 @@ def test_all(plant: PlantConfig, db: DBInterface):
 
 class ABD(DBInterface):
     def read(self, server: ServerConfig, key: str) -> str | None:
-        r = call_api(server, ABD_GET, ABDGetArg(key=key))
+        r = call_api(server, ABD_GET, ABD_GET.ArgumentClass(key=key))
         if r.entry is None:
             return None
         return r.entry.data
 
     def write(self, server: ServerConfig, key: str, data: str | None):
-        call_api(server, ABD_SET, ABDSetArg(key=key, data=data))
+        call_api(server, ABD_SET, ABD_SET.ArgumentClass(key=key, data=data))
 
 
 #############################################

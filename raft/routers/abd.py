@@ -18,7 +18,7 @@ from ..api import (
 
 router = APIRouter(tags=["ABD"])
 
-ABD_LOCAL_STORAGE_SECTION = "ABD"
+STORAGE_SECTION = "ABD"
 
 ##################################
 # Utilities
@@ -26,7 +26,7 @@ ABD_LOCAL_STORAGE_SECTION = "ABD"
 
 
 def get_persisted(localhost: LocalHost, key: str) -> ABDDataEntry | None:
-    persisted_entry = localhost.storage.get_persisted(ABD_LOCAL_STORAGE_SECTION, key)
+    persisted_entry = localhost.storage.get_persisted(STORAGE_SECTION, key)
     if persisted_entry is None:
         entry = None
     else:
@@ -35,29 +35,19 @@ def get_persisted(localhost: LocalHost, key: str) -> ABDDataEntry | None:
 
 
 def set_persisted(localhost: LocalHost, key: str, entry: ABDDataEntry):
-    localhost.storage.set_persisted(
-        ABD_LOCAL_STORAGE_SECTION, key, entry.model_dump_json()
-    )
+    localhost.storage.set_persisted(STORAGE_SECTION, key, entry.model_dump_json())
 
 
 def get_local_logical_timestamp(localhost: LocalHost):
-    ts = localhost.storage.get_persisted(
-        ABD_LOCAL_STORAGE_SECTION, "ABD_LOCAL_LOGICAL_TIMESTAMP"
-    )
+    ts = localhost.storage.get_persisted(STORAGE_SECTION, "LOCAL_LOGICAL_TIMESTAMP")
     if ts is None:
-        ts = 0
-        localhost.storage.set_persisted(
-            ABD_LOCAL_STORAGE_SECTION, "ABD_LOCAL_LOGICAL_TIMESTAMP", str(ts)
-        )
-        return ts
+        return 0
     else:
         return int(ts.data)
 
 
 def set_local_logical_timestamp(localhost: LocalHost, ts: int):
-    localhost.storage.set_persisted(
-        ABD_LOCAL_STORAGE_SECTION, "ABD_LOCAL_LOGICAL_TIMESTAMP", str(ts)
-    )
+    localhost.storage.set_persisted(STORAGE_SECTION, "LOCAL_LOGICAL_TIMESTAMP", str(ts))
 
 
 ##################################
@@ -66,6 +56,7 @@ def set_local_logical_timestamp(localhost: LocalHost, ts: int):
 
 
 async def set_quorum(localhost: LocalHost, key: str, data: str | None):
+    # Bump logical ts for every set
     ts = get_local_logical_timestamp(localhost)
     ts += 1
     set_local_logical_timestamp(localhost, ts)

@@ -61,7 +61,8 @@ INFINITE_SLEEP_PERIOD = 60 * 60 * 24 * 30
 
 
 @implement_api(router, PROXY_SET_RULE)
-async def set_rule(arg: ProxySetRuleArg, localhost: LocalHost):
+async def set_rule(arg: ProxySetRuleArg):
+    logger.warning(f"PROXY SET_RULE {arg}")
     if arg.rule == "drop":
         drop_rules[arg.id] = arg.criteria
     else:
@@ -71,7 +72,8 @@ async def set_rule(arg: ProxySetRuleArg, localhost: LocalHost):
 
 
 @implement_api(router, PROXY_CLEAR_RULE)
-async def clear_rules(arg: ProxyClearRulesArg, localhost: LocalHost):
+async def clear_rules(arg: ProxyClearRulesArg):
+    logger.warning(f"PROXY CLEAR_RULES {arg}")
     ids: list[str] = []
     if arg.rule == "drop":
         if arg.ids is None:

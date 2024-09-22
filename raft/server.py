@@ -123,7 +123,12 @@ LocalHost = Annotated[LocalServer, Depends(_local_server)]
 
 
 def implement_api(router: APIRouter, api: APIConcept[TArg, TResp]):
-    def process(process_func: Callable[[TArg, LocalHost], Coroutine[Any, Any, TResp]]):
+    def process(
+        process_func: (
+            Callable[[TArg, LocalHost], Coroutine[Any, Any, TResp]]
+            | Callable[[TArg], Coroutine[Any, Any, TResp]]
+        )
+    ):
         wrapper = router.post(api.endpoint, response_model=api.ResponseClass)(
             process_func
         )

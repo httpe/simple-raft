@@ -7,11 +7,11 @@
 
 ## Initial Setup
 
-For development, this repos is tested against Python 3.10 under Windows + PowerShell:
+For development, this repos is tested against Python 3.10 under WSL Ubuntu:
 
-```powershell
+```bash
 python -m venv venv
-.\venv\Scripts\Activate.ps1
+source ./venv/bin/activate
 python -m pip install -v --upgrade pip 
 pip install -v -r requirements.txt
 ```

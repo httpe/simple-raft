@@ -58,4 +58,4 @@ We have 3 tests implemented:
 2. Fault tolerant linearizable consistency test
 3. Eventual consistency test
 
-Currently these tests run against the "Attiya, Bar-Noy, Dolev" (ABD) quorum get/set algorithm (`raft/routers/abd.py`), which provides fault-tolerant linearizable consistency, so it will pass the first two but not the last test.
+Currently these tests run against the "Attiya, Bar-Noy, Dolev" (ABD) quorum get/set algorithm (`raft/routers/abd.py`), which provides fault-tolerant linearizable consistency, so it will pass all the tests given that we don't try to read from the faulty node(s).

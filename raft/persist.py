@@ -1,11 +1,14 @@
-# Persistency Layer
+# Persistent Storage Layer
 from datetime import datetime
 import json
 import os
 
 from pydantic import BaseModel
 
-from .api import PersistedEntry
+
+class PersistedEntry(BaseModel):
+    data: str
+    timestamp: datetime
 
 
 class DBSection(BaseModel):

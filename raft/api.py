@@ -1,6 +1,5 @@
-from datetime import datetime
 from pydantic import BaseModel
-from typing import Literal, TypeVar, Generic, Protocol
+from typing import Literal, TypeVar, Generic
 from dataclasses import dataclass
 
 ##############################################################
@@ -9,13 +8,6 @@ from dataclasses import dataclass
 
 TArg = TypeVar("TArg", bound=BaseModel)
 TResp = TypeVar("TResp", bound=BaseModel)
-
-
-# @dataclass
-# class APIConceptProtocol(Protocol[TArg, TResp]):
-#     endpoint: str
-#     ArgumentClass: type[TArg]
-#     ResponseClass: type[TResp]
 
 
 @dataclass
@@ -74,16 +66,6 @@ PROXY_CLEAR_RULE = APIConcept[ProxyClearRulesArg, ProxyClearRulesResponse](
     ArgumentClass=ProxyClearRulesArg,
     ResponseClass=ProxyClearRulesResponse,
 )
-
-##############################################################
-# Persisted Storage
-##############################################################
-
-
-class PersistedEntry(BaseModel):
-    data: str
-    timestamp: datetime
-
 
 ##############################################################
 # Ping

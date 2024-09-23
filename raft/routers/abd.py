@@ -128,6 +128,16 @@ async def get_and_repair_quorum(localhost: LocalHost, key: str):
     return latest_entry
 
 
+def set_local(localhost: LocalHost, entry: ABDDataEntry):
+    # Save to local storage if the received logical time stamp is greater than current timestamp
+    ts = get_local_logical_timestamp(localhost)
+    if entry.logical_timestamp > ts:
+        set_persisted(localhost, entry.key, entry)
+        ts = entry.logical_timestamp
+        set_local_logical_timestamp(localhost, ts)
+    return ts
+
+
 ##################################
 # Web APIs
 ##################################
@@ -163,21 +173,15 @@ async def abd_get_local(arg: ABDGetLocalArg, localhost: LocalHost):
 
 @implement_api(router, ABD_SET_LOCAL)
 async def abd_set_local(arg: ABDSetLocalArg, localhost: LocalHost):
-    entry = arg.entry
-    logger.info(f"ABD SET_LOCAL {entry.key} to {entry.data}")
+    logger.info(f"ABD SET_LOCAL {arg.entry.key} to {arg.entry.data}")
 
-    # Save to local storage if the received logical time stamp is greater than current timestamp
-    ts = get_local_logical_timestamp(localhost)
-    if entry.logical_timestamp > ts:
-        set_persisted(localhost, entry.key, entry)
-        ts = entry.logical_timestamp
-        set_local_logical_timestamp(localhost, ts)
+    ts = set_local(localhost, arg.entry)
 
     # response in all cases, whether we saved it to DB or not
     resp = ABD_SET_LOCAL.ResponseClass(
         server_name=localhost.config.name,
         server_id=localhost.config.id,
-        key=entry.key,
+        key=arg.entry.key,
         logical_timestamp=ts,
     )
     return resp

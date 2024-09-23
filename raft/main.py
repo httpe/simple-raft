@@ -13,7 +13,7 @@ from .configs import PlantConfig
 from .logger import logger, get_uvicorn_log_config, attach_log_file
 from .proxy import router as network_router
 from .routers.ping import router as ping_router
-from .routers.abd import router as abd_router
+from .routers.abd import router as abd_router, ABDApi
 from .server import LocalServer
 from .network import HttpNetworkInterface, HttpNetworkInterfaceWithProxy
 
@@ -86,6 +86,7 @@ async def lifespan(app: FastAPI):
     # global server context
     localhost = LocalServer(plant_config, local_server_name, network)
     app.state.localhost = localhost
+    app.state.abd = ABDApi(localhost)
 
     yield
 

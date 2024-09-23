@@ -1,4 +1,4 @@
-# Python Raft Server
+# Simple-Raft (Python Raft Server)
 
 ## Goals
 

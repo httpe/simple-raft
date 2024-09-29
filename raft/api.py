@@ -189,3 +189,57 @@ ABD_SET = APIConcept[ABDSetArg, ABDSetResponse](
     ArgumentClass=ABDSetArg,
     ResponseClass=ABDSetResponse,
 )
+
+##############################################################
+# Raft Algorithm
+##############################################################
+
+
+RAFT_PREFIX = "/raft"
+
+
+class RaftLogEntry(BaseModel):
+    data: str
+    term: int
+
+
+# Raft RequestVote
+class RaftReqVoteArg(BaseModel):
+    term: int
+    candidateId: str
+    lastLogIndex: int
+    lastLogTerm: int
+
+
+class RaftReqVoteResponse(BaseModel):
+    term: int
+    voteGranted: bool
+
+
+RAFT_REQ_VOTE = APIConcept[RaftReqVoteArg, RaftReqVoteResponse](
+    endpoint=f"{RAFT_PREFIX}/RequestVote",
+    ArgumentClass=RaftReqVoteArg,
+    ResponseClass=RaftReqVoteResponse,
+)
+
+
+# Raft AppendEntries
+class RaftAppEntArg(BaseModel):
+    term: int
+    leaderId: str
+    prevLogIndex: int
+    prevLogTerm: int
+    entries: list[RaftLogEntry]
+    leaderCommit: int
+
+
+class RaftAppEntResponse(BaseModel):
+    term: int
+    success: bool
+
+
+RAFT_APP_ENT = APIConcept[RaftAppEntArg, RaftAppEntResponse](
+    endpoint=f"{RAFT_PREFIX}/AppendEntries",
+    ArgumentClass=RaftAppEntArg,
+    ResponseClass=RaftAppEntResponse,
+)

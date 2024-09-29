@@ -4,6 +4,7 @@ import os
 import argparse
 import json
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 import uvicorn
@@ -14,6 +15,7 @@ from .logger import logger, get_uvicorn_log_config, attach_log_file
 from .proxy import router as network_router
 from .routers.ping import router as ping_router
 from .routers.abd import router as abd_router, ABDApi
+from .routers.raft import router as raft_router, RaftApi
 from .server import LocalServer
 from .network import HttpNetworkInterface, HttpNetworkInterfaceWithProxy
 
@@ -87,6 +89,10 @@ async def lifespan(app: FastAPI):
     localhost = LocalServer(plant_config, local_server_name, network)
     app.state.localhost = localhost
     app.state.abd = ABDApi(localhost)
+    app.state.raft = RaftApi(localhost)
+
+    # run parallel tasks
+    asyncio.create_task(app.state.raft.start())
 
     yield
 
@@ -100,7 +106,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(network_router)
 app.include_router(ping_router)
 app.include_router(abd_router)
-
+app.include_router(raft_router)
 
 ############################################
 ## Main

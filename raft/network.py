@@ -99,12 +99,12 @@ class HttpNetworkInterface(NetworkInterface):
         destination: NetworkAddress,
         endpoint: str,
         body: dict | None = None,
-        timeout: NonNegativeFloat = 0,
+        timeout_sec: NonNegativeFloat = 0,
     ) -> str:
         base_url = destination.construct_base_url(endpoint)
         logger.info(f"Calling {base_url} with body {body}")
         try:
-            r = await self.client.post(base_url, json=body, timeout=timeout)
+            r = await self.client.post(base_url, json=body, timeout=timeout_sec)
         except httpx.TimeoutException as e:
             raise NetworkTimeoutException()
         except Exception as e:

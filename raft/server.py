@@ -6,6 +6,7 @@ from typing import (
 )
 from asyncio import create_task, wait, Task
 from asyncio.tasks import FIRST_COMPLETED
+import time
 
 from fastapi import Request, Depends, APIRouter
 
@@ -40,6 +41,7 @@ class LocalServer:
         server: ServerConfig,
         api: APIConcept[TArg, TResp],
         arg: TArg | None = None,
+        timeout_sec: float | None = None,
     ) -> TResp:
 
         if arg is None:
@@ -47,11 +49,14 @@ class LocalServer:
         else:
             body = arg.model_dump()
 
+        if timeout_sec is None:
+            timeout_sec = self.config.timeout
+
         resp = await self.network.call(
             server.address,
             api.endpoint,
             body=body,
-            timeout=self.config.timeout,
+            timeout_sec=timeout_sec,
         )
 
         return api.ResponseClass.model_validate_json(resp)
@@ -66,10 +71,14 @@ class LocalServer:
         min_resp_required: int,
         api: APIConcept[TArg, TResp],
         arg: TArg | None = None,
+        timeout_sec: float | None = None,
     ) -> list[TResp]:
         logger.info(
             f"Calling endpoint {api.endpoint} for at least {min_resp_required} responses"
         )
+
+        if timeout_sec is None:
+            timeout_sec = self.config.timeout
 
         assert min_resp_required <= len(servers)
 
@@ -82,9 +91,15 @@ class LocalServer:
         # Wait for the required count of responses
         responses: list[TResp] = []
         n_errored = 0
+        t0 = time.monotonic()
 
         while True:
-            done, pending = await wait(pending, return_when=FIRST_COMPLETED)
+            done, pending = await wait(
+                pending, return_when=FIRST_COMPLETED, timeout=timeout_sec
+            )
+            elapsed = time.monotonic() - t0
+            timeout_sec = timeout_sec - elapsed
+
             for task in done:
                 try:
                     r = await task
@@ -107,6 +122,11 @@ class LocalServer:
                     f"Required responses of endpoint {api.endpoint} gathered, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
                 )
                 break
+
+            if timeout_sec <= 0:
+                msg = f"Timed out obtaining required count of responses for endpoint {api.endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
+                logger.error(msg)
+                raise NetworkException(msg)
 
         return responses
 

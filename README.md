@@ -59,3 +59,19 @@ We have 3 tests implemented:
 3. Eventual consistency test
 
 Currently these tests run against the "Attiya, Bar-Noy, Dolev" (ABD) quorum get/set algorithm (`raft/routers/abd.py`), which provides fault-tolerant linearizable consistency, so it will pass all the tests given that we don't try to read from the faulty node(s).
+
+The Raft algorithm will be implemented in `routers/raft.py`. It is currently in development and not usable yet.
+
+## Reference
+
+Video Lectures:
+
+1. Distributed Systems, Cambridge 2122 (Martin Kleppmann): [Youtube](https://www.youtube.com/playlist?list=PLeKd45zvjcDFUEv_ohr_HdUFe97RItdiB)
+2. Distributed Systems, MIT 6.824 (Robert Morris): [Youtube](https://www.youtube.com/@6.824)
+
+Papers:
+
+1. In Search of an Understandable Consensus Algorithm [PDF](https://raft.github.io/raft.pdf)
+2. Consensus: Bridging Theory and Practice [PDF](https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf)
+3. Designing Data-Intensive Applications (Martin Kleppmann)
+4. Distributed Systems (Maarten van Steen) [PDF](https://www.distributed-systems.net/index.php/books/ds3/)

@@ -65,7 +65,7 @@ class RaftApi:
         self.leader_heart_beat_interval_ms = 30
 
     async def start(self):
-        # TODO: do not start Raft yet, many features not implemented
+        # TODO: do not start Raft yet, many features are not yet implemented
         return None
 
         election = asyncio.create_task(self.election_loop())

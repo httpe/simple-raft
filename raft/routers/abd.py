@@ -110,9 +110,10 @@ class ABDApi:
 
         if latest_entry is None:
             return latest_entry
-        assert local_entry is not None
 
-        if local_entry.logical_timestamp < latest_entry.logical_timestamp:
+        if local_entry is None or (
+            local_entry.logical_timestamp < latest_entry.logical_timestamp
+        ):
             self.set_persisted(key, latest_entry)
 
         nodes_need_repair = [

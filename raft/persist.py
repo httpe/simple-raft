@@ -60,7 +60,9 @@ class PersistedStorage:
             else:
                 return len(db_section.store)
 
-    def set_persisted(self, section: str, key: str, data: str | None) -> PersistedEntry:
+    def set_persisted(
+        self, section: str, key: str, data: str | None
+    ) -> PersistedEntry | None:
         timestamp = datetime.now()
 
         db_section = self.db.sections.get(section)
@@ -70,8 +72,11 @@ class PersistedStorage:
 
         # set to memory
         if data is None:
-            entry = db_section.store[key]
-            del db_section.store[key]
+            if key in db_section.store:
+                entry = db_section.store[key]
+                del db_section.store[key]
+            else:
+                entry = None
         else:
             entry = PersistedEntry(data=data, timestamp=timestamp)
             db_section.store[key] = entry

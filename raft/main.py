@@ -88,16 +88,22 @@ async def lifespan(app: FastAPI):
     # global server context
     localhost = LocalServer(plant_config, local_server_name, network)
     app.state.localhost = localhost
-    app.state.abd = ABDApi(localhost)
-    app.state.raft = RaftApi(localhost)
+    if (
+        plant_config.use_proxy
+        and plant_config.proxy is not None
+        and local_server_name != plant_config.proxy.name
+    ):
+        app.state.abd = ABDApi(localhost)
+        app.state.raft = RaftApi(localhost)
 
-    # run parallel tasks
-    asyncio.create_task(app.state.raft.start())
+        # run parallel tasks
+        raft_task = asyncio.create_task(app.state.raft.start())
 
     yield
 
     # clean up
     await http_client.aclose()
+    raft_task.cancel()
 
     pass
 
@@ -122,4 +128,5 @@ if __name__ == "__main__":
         log_config=log_config,
         reload=True,
         workers=1,
+        access_log=False,
     )

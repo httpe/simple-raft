@@ -199,7 +199,7 @@ RAFT_PREFIX = "/raft"
 
 
 class RaftLogEntry(BaseModel):
-    data: str
+    data: str | None
     term: int
 
 
@@ -242,4 +242,51 @@ RAFT_APP_ENT = APIConcept[RaftAppEntArg, RaftAppEntResponse](
     endpoint=f"{RAFT_PREFIX}/AppendEntries",
     ArgumentClass=RaftAppEntArg,
     ResponseClass=RaftAppEntResponse,
+)
+
+
+# Raft AddLog
+class RaftAddLogArg(BaseModel):
+    data: str | None
+
+
+class RaftAddLogResponse(BaseModel):
+    term: int
+    index: int
+
+
+RAFT_ADD_LOG = APIConcept[RaftAddLogArg, RaftAddLogResponse](
+    endpoint=f"{RAFT_PREFIX}/AddLog",
+    ArgumentClass=RaftAddLogArg,
+    ResponseClass=RaftAddLogResponse,
+)
+
+
+# Raft GetLogs
+
+
+class RaftGetLogsArg(BaseModel):
+    startIndex: int | None
+    endIndex: int | None
+    quorum: bool
+
+
+class RaftIndexedLogEntry(BaseModel):
+    data: str | None
+    term: int
+    index: int
+
+
+class RaftGetLogsResponse(BaseModel):
+    entries: list[RaftIndexedLogEntry]
+    server_name: str
+    server_id: str
+    committedIndex: int
+    maxLogsIndex: int
+
+
+RAFT_GET_LOGS = APIConcept[RaftGetLogsArg, RaftGetLogsResponse](
+    endpoint=f"{RAFT_PREFIX}/GetLogs",
+    ArgumentClass=RaftGetLogsArg,
+    ResponseClass=RaftGetLogsResponse,
 )

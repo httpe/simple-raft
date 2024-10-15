@@ -102,7 +102,7 @@ class HttpNetworkInterface(NetworkInterface):
         timeout_sec: NonNegativeFloat = 0,
     ) -> str:
         base_url = destination.construct_base_url(endpoint)
-        logger.info(f"Calling {base_url} with body {body}")
+        logger.debug(f"Calling {base_url} with body {body}")
         try:
             r = await self.client.post(base_url, json=body, timeout=timeout_sec)
         except httpx.TimeoutException as e:
@@ -151,7 +151,7 @@ class HttpNetworkInterfaceWithProxy(HttpNetworkInterface):
             body=body,
         )
         data = request.model_dump()
-        logger.info(f"Sending request via proxy {self.proxy_addr.name}: {data}")
+        logger.debug(f"Sending request via proxy {self.proxy_addr.name}: {data}")
         try:
             r = await self.client.post(base_proxy_url, json=data, timeout=timeout_sec)
             if r.status_code != status.HTTP_200_OK:

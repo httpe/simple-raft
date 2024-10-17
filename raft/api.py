@@ -198,8 +198,18 @@ ABD_SET = APIConcept[ABDSetArg, ABDSetResponse](
 RAFT_PREFIX = "/raft"
 
 
+class StateMachineInstruction(BaseModel):
+    op: Literal["ASSERT", "SET"]
+    key: str
+    val: None | str
+
+
+class StateMachineTransaction(BaseModel):
+    instructions: list[StateMachineInstruction]
+
+
 class RaftLogEntry(BaseModel):
-    data: str | None
+    data: StateMachineTransaction
     term: int
 
 
@@ -247,12 +257,13 @@ RAFT_APP_ENT = APIConcept[RaftAppEntArg, RaftAppEntResponse](
 
 # Raft AddLog
 class RaftAddLogArg(BaseModel):
-    data: str | None
+    data: StateMachineTransaction
 
 
 class RaftAddLogResponse(BaseModel):
-    term: int
-    index: int
+    successful: bool
+    term: int | None
+    index: int | None
 
 
 RAFT_ADD_LOG = APIConcept[RaftAddLogArg, RaftAddLogResponse](
@@ -272,7 +283,7 @@ class RaftGetLogsArg(BaseModel):
 
 
 class RaftIndexedLogEntry(BaseModel):
-    data: str | None
+    data: StateMachineTransaction
     term: int
     index: int
 
@@ -289,4 +300,26 @@ RAFT_GET_LOGS = APIConcept[RaftGetLogsArg, RaftGetLogsResponse](
     endpoint=f"{RAFT_PREFIX}/GetLogs",
     ArgumentClass=RaftGetLogsArg,
     ResponseClass=RaftGetLogsResponse,
+)
+
+# Raft GetStates
+
+
+class RaftGetStatesArg(BaseModel):
+    keys: list[str] | None
+    quorum: bool
+
+
+class RaftGetStatesResponse(BaseModel):
+    server_name: str
+    server_id: str
+    committedIndex: int
+    maxLogsIndex: int
+    states: dict[str, None | str]
+
+
+RAFT_GET_STATES = APIConcept[RaftGetStatesArg, RaftGetStatesResponse](
+    endpoint=f"{RAFT_PREFIX}/GetStates",
+    ArgumentClass=RaftGetStatesArg,
+    ResponseClass=RaftGetStatesResponse,
 )

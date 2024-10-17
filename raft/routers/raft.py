@@ -1,5 +1,5 @@
 # Raft Algorithm
-from typing import Annotated
+from typing import Annotated, Callable, Awaitable
 import random
 import time
 import asyncio
@@ -16,6 +16,9 @@ from ..network import NetworkException
 from ..server import LocalHost, implement_api
 from ..logger import logger
 from ..api import (
+    APIConcept,
+    TArg,
+    TResp,
     RaftLogEntry,
     RAFT_REQ_VOTE,
     RaftReqVoteArg,
@@ -30,6 +33,10 @@ from ..api import (
     RaftGetLogsArg,
     RaftGetLogsResponse,
     RaftIndexedLogEntry,
+    StateMachineTransaction,
+    RAFT_GET_STATES,
+    RaftGetStatesArg,
+    RaftGetStatesResponse,
 )
 
 ##################################
@@ -40,7 +47,7 @@ router = APIRouter(tags=["Raft"])
 
 STORAGE_SECTION = "Raft"
 
-TIME_SCALE_FACTOR = 10  # make the clock slower X times
+TIME_SCALE_FACTOR = 1  # make the clock slower X times
 
 ##################################
 # Raft States
@@ -72,6 +79,8 @@ class RaftApi:
         self.lastApplied = 0
         self.role: RaftRole = RaftRole.FOLLOWER
         self.leader_id: None | str = None
+        # state machine: KV store
+        self.states = {}
 
         # Volatile states - Leader only
         self.nextIndex: dict[str, int] = {}
@@ -143,14 +152,13 @@ class RaftApi:
         await asyncio.gather(election, leader_heart_beat)
 
     async def add_log(self, req: RaftAddLogArg) -> RaftAddLogResponse:
-        # if not leader, forward to leader
-        if self.role != RaftRole.LEADER:
-            logger.info(f"Raft: forwarding add log request to leader {self.leader_id}")
-            assert (
-                self.leader_id is not None
-            ), f"No leader elected for this term {self.currentTerm}"
-            leader = self.localhost.plant.get_server(self.leader_id)
-            return await self.localhost.call(leader, RAFT_ADD_LOG, req)
+        # verify the transaction first
+        try:
+            self.apply_state_machine_transaction(self.states, req.data)
+        except Exception as e:
+            logger.error(f"Raft: error when test applying new transaction, abort")
+            logger.error(traceback.format_exc())
+            return RaftAddLogResponse(successful=False, term=None, index=None)
 
         # if we are leader, add to the local log
         logger.info(f"Raft: adding entry to local logs")
@@ -209,7 +217,9 @@ class RaftApi:
                     logger.info(f"Raft: successfully replicated new entry to quorum")
                     self.leader_check_and_commit()
                     assert self.commitIndex >= new_index
-                    return RaftAddLogResponse(term=add_log_term, index=new_index)
+                    return RaftAddLogResponse(
+                        successful=True, term=add_log_term, index=new_index
+                    )
 
             # wait and retry
             await asyncio.sleep(500)
@@ -444,7 +454,14 @@ class RaftApi:
                     self.matchIndex[server.id] = 0
 
                 # append a no-op entry into the log so we can commit everything from previous terms
-                r = await self.add_log(RaftAddLogArg(data=None))
+                try:
+                    r = await self.add_log(
+                        RaftAddLogArg(data=StateMachineTransaction(instructions=[]))
+                    )
+                    assert r.successful
+                except Exception:
+                    logger.error(f"Raft: failed committing no-op after election")
+                    logger.error(traceback.format_exc())
 
                 return
 
@@ -483,7 +500,7 @@ class RaftApi:
                 )
                 granted = False
 
-            elif req.lastLogIndex == last_log.term and req.lastLogIndex < len(logs):
+            elif req.lastLogTerm == last_log.term and req.lastLogIndex < len(logs):
                 logger.warning(
                     f"Raft: refuse to vote,stale last log index (our: {len(logs)}, request: {req.lastLogIndex})"
                 )
@@ -627,14 +644,14 @@ class RaftApi:
             logs.extend(logs_to_append)
             logs_changed = True
 
+        # Persist logs if changed
+        if logs_changed:
+            self.logs = logs
+
         # If leaderCommit > commitIndex, set:
         # commitIndex = min(leaderCommit, index of last new entry)
         if req.leaderCommit > self.commitIndex:
             self.commit(req.leaderCommit)
-
-        # Persist logs if changed
-        if logs_changed:
-            self.logs = logs
 
         return RaftAppEntResponse(term=self.currentTerm, success=True)
 
@@ -661,36 +678,61 @@ class RaftApi:
         self.reset_next_election_time()
         return
 
-    def commit(self, index: int):
-        assert index >= self.commitIndex
-        assert index >= self.lastApplied
+    def apply_state_machine_transaction(
+        self, states: dict, instructions: StateMachineTransaction
+    ):
+        states = {k: v for k, v in states.items()}
+        for inst in instructions.instructions:
+            if inst.op == "ASSERT":
+                assert states.get(inst.key) == inst.val
+            elif inst.op == "SET":
+                if inst.val is None:
+                    del states[inst.key]
+                else:
+                    states[inst.key] = inst.val
+            else:
+                raise NotImplementedError()
+        return states
+
+    def commit(self, commit_to_index: int):
+        assert commit_to_index >= self.commitIndex
+        assert commit_to_index >= self.lastApplied
         assert self.commitIndex >= self.lastApplied
-        logger.info(f"Raft: committing new entry, index {index}")
-        self.commitIndex = index
-        # we can apply log data to the state machine here
-        # for now we just set the lastApplied
-        # we can return anything before lastApplied to the client if requested
-        self.lastApplied = self.commitIndex
+
+        prev_committed = self.commitIndex
+        if prev_committed < commit_to_index:
+            logger.info(
+                f"Raft: committing new entry, index {commit_to_index}, previous committed index {prev_committed}"
+            )
+            self.commitIndex = commit_to_index
+
+        if self.lastApplied < self.commitIndex:
+            logger.info(
+                f"Raft: applying new entry to state machine, max index to apply {self.commitIndex}, previous applied index {self.lastApplied}"
+            )
+            # apply transactions to the state machine
+            logs = self.logs
+            index = self.lastApplied + 1
+            transaction = None
+            try:
+                while index <= self.commitIndex:
+                    logger.debug(
+                        f"Raft: applying log at index {index} to state machine"
+                    )
+                    log = logs[index - 1]
+                    transaction = log.data
+                    self.states = self.apply_state_machine_transaction(
+                        self.states, transaction
+                    )
+                    self.lastApplied = index
+                    index += 1
+            except Exception as e:
+                logger.critical(
+                    f"Raft: cannot apply committed transactions to the state machine at index {index}, transaction {transaction}"
+                )
+                logger.critical(traceback.format_exc())
 
     async def get_logs(self, arg: RaftGetLogsArg) -> RaftGetLogsResponse:
-        if arg.quorum:
-            if self.role != RaftRole.LEADER:
-                logger.info(
-                    f"Raft: forwarding quorum get log request to leader {self.leader_id}"
-                )
-                assert (
-                    self.leader_id is not None
-                ), f"No leader elected for this term {self.currentTerm}"
-                leader = self.localhost.plant.get_server(self.leader_id)
-                return await self.localhost.call(leader, RAFT_GET_LOGS, arg)
-            # for read request, only process it after we have another successful quorum heart beat
-            # such that we know we are still the leader, preventing to return stale info
-            logger.info("Raft: processing quorum read request, waiting heart beat")
-            last_heart_beat = self.last_successful_heart_beat
-            while self.last_successful_heart_beat <= last_heart_beat:
-                await asyncio.sleep(0.01)
-            logger.info("Raft: heart beat succeeded, returning from local logs")
-
         logs = self.logs
         if len(logs) > 0:
             if arg.startIndex is None:
@@ -723,6 +765,64 @@ class RaftApi:
         )
         return resp
 
+    async def forward_to_leader(
+        self,
+        api: APIConcept[TArg, TResp],
+        arg: TArg,
+        leader_handler: Callable[[TArg], Awaitable[TResp]],
+        max_try: int = 10,
+    ) -> TResp:
+        try_count = 0
+        while True:
+            try_count += 1
+            try:
+                if self.role != RaftRole.LEADER:
+                    logger.info(
+                        f"Raft: forwarding request to leader {self.leader_id}: {api.endpoint}"
+                    )
+                    assert (
+                        self.leader_id is not None
+                    ), f"No leader elected for this term {self.currentTerm}"
+                    leader = self.localhost.plant.get_server(self.leader_id)
+                    return await self.localhost.call(leader, api, arg)
+                else:
+                    # for read request, only process it after we have another successful quorum heart beat
+                    # such that we know we are still the leader, preventing to return stale info
+                    logger.info("Raft: processing quorum request, waiting heart beat")
+                    last_heart_beat = self.last_successful_heart_beat
+                    while self.last_successful_heart_beat <= last_heart_beat:
+                        await asyncio.sleep(0.01)
+                        assert self.role == RaftRole.LEADER
+                    logger.info("Raft: heart beat wait succeeded, continuing in leader")
+                    return await leader_handler(arg)
+            except Exception:
+                logger.error(
+                    f"Raft: Cannot forward request to the leader, will retry. Tried {try_count}/{max_try}"
+                )
+                logger.error(traceback.format_exc())
+            if try_count < max_try:
+                await asyncio.sleep(2 * self.election_timeout_ms / 1000)
+            else:
+                logger.error(
+                    f"Raft: Max retry for request to leader reached, tried {try_count} times"
+                )
+                raise Exception("Max retry reached")
+
+    async def get_states(self, arg: RaftGetStatesArg) -> RaftGetStatesResponse:
+        logs = self.logs
+        if arg.keys is None:
+            states = self.states
+        else:
+            states = {k: v for k, v in self.states.items() if k in arg.keys}
+
+        return RaftGetStatesResponse(
+            server_name=self.localhost.config.name,
+            server_id=self.localhost.config.id,
+            committedIndex=self.commitIndex,
+            maxLogsIndex=len(logs),
+            states=states,
+        )
+
 
 async def raft_api(request: Request) -> RaftApi:
     return request.app.state.raft
@@ -751,10 +851,22 @@ async def raft_append_entries(arg: RaftAppEntArg, raft: Raft):
 @implement_api(router, RAFT_ADD_LOG)
 async def raft_add_log(arg: RaftAddLogArg, raft: Raft):
     logger.info(f"Raft ADD LOG {arg}")
-    return await raft.add_log(arg)
+    return await raft.forward_to_leader(RAFT_ADD_LOG, arg, raft.add_log)
 
 
 @implement_api(router, RAFT_GET_LOGS)
 async def raft_get_logs(arg: RaftGetLogsArg, raft: Raft):
     logger.info(f"Raft GET LOGS {arg}")
-    return await raft.get_logs(arg)
+    if arg.quorum:
+        return await raft.forward_to_leader(RAFT_GET_LOGS, arg, raft.get_logs)
+    else:
+        return await raft.get_logs(arg)
+
+
+@implement_api(router, RAFT_GET_STATES)
+async def raft_get_states(arg: RaftGetStatesArg, raft: Raft):
+    logger.info(f"Raft GET STATES {arg}")
+    if arg.quorum:
+        return await raft.forward_to_leader(RAFT_GET_STATES, arg, raft.get_states)
+    else:
+        return await raft.get_states(arg)

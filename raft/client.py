@@ -16,6 +16,10 @@ from .api import (
     APIConcept,
     ABD_GET,
     ABD_SET,
+    RAFT_ADD_LOG,
+    RAFT_GET_STATES,
+    StateMachineTransaction,
+    StateMachineInstruction,
     RequestMatchingCriteria,
     PROXY_SET_RULE,
     PROXY_CLEAR_RULE,
@@ -40,9 +44,11 @@ TResp = TypeVar("TResp", bound=BaseModel)
 #############################################
 
 
-def call_api(server: ServerConfig, api: APIConcept[TArg, TResp], arg: TArg) -> TResp:
+def call_api(
+    server: ServerConfig, api: APIConcept[TArg, TResp], arg: TArg, timeout: float = 20.0
+) -> TResp:
     url = server.address.construct_base_url(api.endpoint)
-    r = httpx.post(url, json=arg.model_dump())
+    r = httpx.post(url, json=arg.model_dump(), timeout=timeout)
     if r.status_code != status.HTTP_200_OK:
         raise Exception(f"status_code={r.status_code}")
     return api.ResponseClass(**r.json())
@@ -170,14 +176,22 @@ def test_fault_tolerant_linearizability(
     proxy_clear_rules(proxy, ["partition_src", "partition_dest"])
 
     # read from the faulty node should give us the latest value
-    assert data == db.read(faulty_node, key)
+    faulty_node_data = db.read(faulty_node, key)
 
     # all nodes should returns the same data
     for s in servers:
         node_data[s.name] = db.read(s, key)
-        # good nodes should preserve read-after-write consistency
-        assert data == node_data[s.name]
+
     logger.info(f"Current data for nodes: {node_data}")
+
+    assert (
+        data == faulty_node_data
+    ), f"The data in fault node {faulty_node.name} is {faulty_node_data}, expected {data}"
+
+    for s in servers:
+        assert (
+            node_data[s.name] == data
+        ), f"Node {s.name} has data {node_data[s.name]}, expected {data}"
 
     logger.info(
         f"Test completed: Fault tolerant linearizability between {server_names}"
@@ -267,16 +281,24 @@ def test_all(plant: PlantConfig, db: DBInterface):
     # clear all proxy rules before running tests
     proxy_clear_rules(plant.proxy, None)
 
-    # Normal test
-    test_read_after_write_consistency(plant.servers, db)  # ABD should pass this
+    try:
+        # Normal test
+        test_read_after_write_consistency(plant.servers, db)  # ABD should pass this
 
-    # Fault tolerance tests
-    test_fault_tolerant_linearizability(
-        plant.proxy, plant.servers, db
-    )  # ABD should pass this
+        # Fault tolerance tests
+        test_fault_tolerant_linearizability(
+            plant.proxy, plant.servers, db
+        )  # ABD should pass this
 
-    # ABD will fail this if we try to read faulty node
-    test_eventual_consistency(plant.proxy, plant.servers, db, read_faulty_nodes=False)
+        # ABD will fail this if we try to read faulty node
+        test_eventual_consistency(
+            plant.proxy, plant.servers, db, read_faulty_nodes=False
+        )
+
+    except Exception as e:
+        logger.error("Test failed, clearing proxy rules")
+        proxy_clear_rules(plant.proxy, None)
+        raise e
 
     logger.info(f"All tests finished")
 
@@ -298,6 +320,120 @@ class ABD(DBInterface):
 
 
 #############################################
+## Raft Algorithm
+#############################################
+
+
+class Raft(DBInterface):
+    def read(self, server: ServerConfig, key: str) -> str | None:
+        r = call_api(
+            server,
+            RAFT_GET_STATES,
+            RAFT_GET_STATES.ArgumentClass(keys=[key], quorum=True),
+        )
+        logger.info(f"Raft: read request response: {r}")
+        data = r.states.get(key)
+        return data
+
+    def write(self, server: ServerConfig, key: str, data: str | None):
+        transaction = StateMachineTransaction(
+            instructions=[
+                StateMachineInstruction(op="SET", key=key, val=data),
+            ]
+        )
+        r = call_api(server, RAFT_ADD_LOG, RAFT_ADD_LOG.ArgumentClass(data=transaction))
+        logger.info(f"Raft: write request response: {r}")
+        assert r.successful, "Raft add log failed"
+
+
+def test_raft_fibonacci_transaction(plant: PlantConfig):
+    logger.info("Running test: test_raft_fibonacci_transaction be")
+    servers = list(plant.servers)
+
+    random.shuffle(servers)
+    r = call_api(
+        servers[0],
+        RAFT_GET_STATES,
+        RAFT_GET_STATES.ArgumentClass(
+            quorum=True,
+            keys=[
+                "fibonacci/version",
+                "fibonacci/currentValue",
+                "fibonacci/historyJson",
+            ],
+        ),
+    )
+    logger.info(f"Current states in {servers[0].name}: {r.states}")
+
+    # add one more number from the fibonacci sequence
+    version = r.states.get("fibonacci/version")
+    if version is None:
+        version = 0
+        currentValue = 1
+        historyJson = json.dumps([0, 1])
+    else:
+        version = int(version) + 1
+        historyJson = r.states["fibonacci/historyJson"]
+        assert isinstance(historyJson, str)
+        history = json.loads(historyJson)
+        currentValue = history[-2] + history[-1]
+        history.append(currentValue)
+        historyJson = json.dumps(history)
+
+    transaction = StateMachineTransaction(
+        instructions=[
+            StateMachineInstruction(
+                op="ASSERT",
+                key="fibonacci/version",
+                val=r.states.get("fibonacci/version"),
+            ),
+            StateMachineInstruction(
+                op="SET", key="fibonacci/version", val=str(version)
+            ),
+            StateMachineInstruction(
+                op="SET", key="fibonacci/currentValue", val=str(currentValue)
+            ),
+            StateMachineInstruction(
+                op="SET", key="fibonacci/historyJson", val=historyJson
+            ),
+        ]
+    )
+
+    random.shuffle(servers)
+    logger.info(f"Adding next fibonacci number to {servers[0].name}: {currentValue}")
+    r = call_api(
+        servers[0],
+        RAFT_ADD_LOG,
+        RAFT_ADD_LOG.ArgumentClass(data=transaction),
+    )
+    logger.info(f"Raft add log response from {servers[0].name}: {r}")
+    assert r.successful, "Raft add log failed"
+
+    random.shuffle(servers)
+    expected_states = {
+        "fibonacci/version": str(version),
+        "fibonacci/currentValue": str(currentValue),
+        "fibonacci/historyJson": historyJson,
+    }
+    for server in servers:
+        r = call_api(
+            server,
+            RAFT_GET_STATES,
+            RAFT_GET_STATES.ArgumentClass(
+                quorum=True,
+                keys=[
+                    "fibonacci/version",
+                    "fibonacci/currentValue",
+                    "fibonacci/historyJson",
+                ],
+            ),
+        )
+        logger.info(f"Current states in {server.name}: {r.states}")
+        for k, v in expected_states.items():
+            assert r.states.get(k) == v
+
+
+#############################################
 ## Main
 #############################################
 
@@ -310,10 +446,18 @@ def main():
     plant = PlantConfig(**config)
     assert plant.proxy is not None
 
-    # Test two phase commit
-    db = ABD()
+    # Test ABD algorithm
+    abd = ABD()
+    test_all(plant, abd)
 
-    test_all(plant, db)
+    # Test Raft algorithm
+    raft = Raft()
+    test_all(plant, raft)
+
+    # Raft transaction test
+    test_raft_fibonacci_transaction(plant)
+    test_raft_fibonacci_transaction(plant)
+    test_raft_fibonacci_transaction(plant)
 
 
 def parse_cml_args():

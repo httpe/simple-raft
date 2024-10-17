@@ -52,15 +52,17 @@ You can run test against the servers with:
 python -m raft.client
 ```
 
-We have 3 tests implemented:
+We have 3 generic tests implemented:
 
 1. Read-after-Write consistency test
 2. Fault tolerant linearizable consistency test
 3. Eventual consistency test
 
-Currently these tests run against the "Attiya, Bar-Noy, Dolev" (ABD) quorum get/set algorithm (`raft/routers/abd.py`), which provides fault-tolerant linearizable consistency, so it will pass all the tests given that we don't try to read from the faulty node(s).
+Currently these tests run against both the "Attiya, Bar-Noy, Dolev" (ABD) quorum get/set algorithm (`raft/routers/abd.py`), and the Raft algorithm (`raft/routers/raft.py`).
 
-The Raft algorithm will be implemented in `routers/raft.py`. It is currently in development and not usable yet.
+They both provide fault-tolerant linearizable consistency, so it will pass all the tests given that we don't try to read from the faulty node(s).
+
+We also have a simple test for the Raft state machine, where we append fibonacci numbers sequentially, but only after validating the previous state is unchanged at the Raft server side.
 
 ## Reference
 

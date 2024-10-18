@@ -269,7 +269,7 @@ class RaftApi:
             else:
                 req_logger = logger.debug
 
-            req_logger(
+            logger.debug(
                 f"""Raft: sending replication request to {server.name}, term {append_req.term}, \
                     prevLogIndex {append_req.prevLogIndex}, prevLogTerm {append_req.prevLogTerm}, \
                     leaderCommit {append_req.leaderCommit}, #entries {len(append_req.entries)}"""

@@ -131,7 +131,57 @@ def test_read_after_write_consistency(servers: list[ServerConfig], db: DBInterfa
     db.write(random.choice(servers), key, None)
     for s in servers:
         assert db.read(s, key) is None
-    logger.info(f"Test completed: get/set linearizability between {servers}")
+    logger.info(
+        f"Test completed: get/set linearizability between {[x.name for x in servers]}"
+    )
+
+
+def test_write_performance_benchmark(servers: list[ServerConfig], db: DBInterface):
+    logger.info(
+        f"Test started: write performance benchmark {[x.name for x in servers]}"
+    )
+
+    key = "write_performance_benchmark"
+    servers = list(servers)
+
+    t0 = time.time()
+    for i in range(100):
+        data = gen_random_str(10)
+        random.shuffle(servers)
+        server = servers[0]
+        logger.info(f"Writing {i}th data to {server.name}, key: {key}, data: {data}")
+        db.write(server, key, data)
+
+    t1 = time.time()
+    logger.info(
+        f"100 writes finished in {t1-t0} seconds, i.e. {100/(t1-t0)} writes per second"
+    )
+
+    logger.info(
+        f"Test completed:  write performance benchmark {[x.name for x in servers]}"
+    )
+
+
+def test_read_performance_benchmark(servers: list[ServerConfig], db: DBInterface):
+    logger.info(f"Test started: read performance benchmark {[x.name for x in servers]}")
+
+    key = "test_read_performance_benchmark"
+    servers = list(servers)
+
+    t0 = time.time()
+    for i in range(100):
+        random.shuffle(servers)
+        server = servers[0]
+        r = db.read(server, key)
+        logger.info(f"Read {i}th data at {server.name}, key: {key}, data: {r}")
+    t1 = time.time()
+    logger.info(
+        f"100 reads finished in {t1-t0} seconds, i.e. {100/(t1-t0)} reads per second"
+    )
+
+    logger.info(
+        f"Test completed:  read performance benchmark {[x.name for x in servers]}"
+    )
 
 
 def test_fault_tolerant_linearizability(
@@ -283,14 +333,18 @@ def test_all(plant: PlantConfig, db: DBInterface):
 
     try:
         # Normal test
-        test_read_after_write_consistency(plant.servers, db)  # ABD should pass this
+        test_read_after_write_consistency(plant.servers, db)
+
+        # Write performance benchmark test
+        test_write_performance_benchmark(plant.servers, db)
+
+        # Read performance benchmark test
+        test_read_performance_benchmark(plant.servers, db)
 
         # Fault tolerance tests
-        test_fault_tolerant_linearizability(
-            plant.proxy, plant.servers, db
-        )  # ABD should pass this
+        test_fault_tolerant_linearizability(plant.proxy, plant.servers, db)
 
-        # ABD will fail this if we try to read faulty node
+        # Quorum read algo will fail this if we try to read faulty node
         test_eventual_consistency(
             plant.proxy, plant.servers, db, read_faulty_nodes=False
         )
@@ -455,8 +509,6 @@ def main():
     test_all(plant, raft)
 
     # Raft transaction test
-    test_raft_fibonacci_transaction(plant)
-    test_raft_fibonacci_transaction(plant)
     test_raft_fibonacci_transaction(plant)
 
 

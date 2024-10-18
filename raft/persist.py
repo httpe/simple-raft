@@ -32,16 +32,22 @@ class PersistedStorage:
             init_db = Database(sections={}, timestamp=datetime.now())
             self._write_disk(db_path, init_db)
 
-        with open(db_path, "r") as f:
-            db_dict = json.load(f)
-
-        self.db = Database(**db_dict)
+        self.db = self._read_disk(db_path)
 
     @staticmethod
     def _write_disk(path: str, db: Database):
         with open(path, "w") as f:
             db_json = db.model_dump_json()
             f.write(db_json)
+        pass
+
+    @staticmethod
+    def _read_disk(path: str) -> Database:
+        with open(path, "r") as f:
+            db_dict = json.load(f)
+        db = Database(**db_dict)
+        # db = Database(sections={}, timestamp=datetime.now())
+        return db
 
     def get_persisted(self, section: str, key: str) -> PersistedEntry | None:
         db_section = self.db.sections.get(section)

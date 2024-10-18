@@ -90,15 +90,12 @@ async def lifespan(app: FastAPI):
     app.state.localhost = localhost
     tasks = []
 
-    if (
-        plant_config.use_proxy
-        and plant_config.proxy is not None
-        and local_server_name != plant_config.proxy.name
+    # initialize consensus algorithms only in non-proxy nodes
+    if not plant_config.use_proxy or (
+        plant_config.proxy is not None and local_server_name != plant_config.proxy.name
     ):
         app.state.abd = ABDApi(localhost)
         app.state.raft = RaftApi(localhost)
-
-        # run parallel tasks
         raft_task = asyncio.create_task(app.state.raft.start())
         tasks.append(raft_task)
 

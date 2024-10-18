@@ -37,7 +37,7 @@ timeout_rules: dict[str, RequestMatchingCriteria] = {}
 
 @router.post(PROXY_ROUTE_ENDPOINT)
 async def proxy_route(req: NetworkRequest, localhost: LocalHost) -> Response:
-    logger.info(
+    logger.debug(
         f"Routing request from {req.origin.name} to {req.destination.name} for endpoint {req.endpoint} with body {req.body}"
     )
 

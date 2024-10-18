@@ -93,11 +93,13 @@ def proxy_clear_rules(proxy: ServerConfig, ids: list[str] | None):
 
 class DBInterface(ABC):
     @abstractmethod
-    def read(self, server: ServerConfig, key: str) -> str | None:
+    def read(self, server: ServerConfig, key: str, quorum: bool = True) -> str | None:
         pass
 
     @abstractmethod
-    def write(self, server: ServerConfig, key: str, data: str | None):
+    def write(
+        self, server: ServerConfig, key: str, data: str | None, quorum: bool = True
+    ):
         pass
 
 
@@ -141,7 +143,7 @@ def test_write_performance_benchmark(servers: list[ServerConfig], db: DBInterfac
         f"Test started: write performance benchmark {[x.name for x in servers]}"
     )
 
-    key = "write_performance_benchmark"
+    key = "performance_benchmark"
     servers = list(servers)
 
     t0 = time.time()
@@ -165,7 +167,7 @@ def test_write_performance_benchmark(servers: list[ServerConfig], db: DBInterfac
 def test_read_performance_benchmark(servers: list[ServerConfig], db: DBInterface):
     logger.info(f"Test started: read performance benchmark {[x.name for x in servers]}")
 
-    key = "test_read_performance_benchmark"
+    key = "performance_benchmark"
     servers = list(servers)
 
     t0 = time.time()
@@ -249,11 +251,7 @@ def test_fault_tolerant_linearizability(
 
 
 def test_eventual_consistency(
-    proxy: ServerConfig,
-    servers: list[ServerConfig],
-    db: DBInterface,
-    timeout_sec=10,
-    read_faulty_nodes=False,
+    proxy: ServerConfig, servers: list[ServerConfig], db: DBInterface, timeout_sec=10
 ):
     server_names = [x.name for x in servers]
 
@@ -280,22 +278,8 @@ def test_eventual_consistency(
     logger.info(
         f"Writing data during network partition, to_node: {main_node.name}, key: {key}, data: {data}"
     )
-    # We expect the data write and read on a non-faulty node to be successful
-    db.write(main_node, key, data)
-
-    node_data: dict[str, str | None] = {}
-    for s in servers:
-        if not read_faulty_nodes and s not in good_nodes:
-            continue
-        node_data[s.name] = db.read(s, key)
-        if s in good_nodes:
-            # good nodes should preserve read-after-write consistency
-            assert data == node_data[s.name]
-        else:
-            # faulty node can return stale data but it should still work
-            pass
-
-    logger.info(f"Current data for nodes: {node_data}")
+    # We expect the write to a non-faulty node will be successful
+    db.write(main_node, key, data, quorum=False)
 
     # Resume network
     logger.info(f"Resume network to the faulty node {faulty_node.name}")
@@ -304,17 +288,18 @@ def test_eventual_consistency(
     # Wait for eventual consistency to realize until timeout
     logger.info(f"Waiting for eventual consistency to realize")
     t0 = time.time()
+    node_data = {}
     while time.time() - t0 < timeout_sec:
         all_same = True
         for s in servers:
-            node_data[s.name] = db.read(s, key)
+            node_data[s.name] = db.read(s, key, quorum=False)
             all_same = all_same and data == node_data[s.name]
         logger.info(f"Current data for nodes: {node_data}")
         if all_same:
             logger.info(f"All nodes are synced now")
             break
 
-        logger.info(f"Sub node state not synced yet, will retry in 0.5s...")
+        logger.info(f"Node are not synced yet, will retry in 0.5s...")
         time.sleep(0.5)
 
     logger.info(
@@ -322,39 +307,51 @@ def test_eventual_consistency(
     )
 
 
-def test_all(plant: PlantConfig, db: DBInterface):
-    logger.info(f"Start running all tests")
+def test_correctness(plant: PlantConfig, db: DBInterface):
+    logger.info(f"Start running all correctness tests")
 
-    assert plant.proxy is not None
-    logger.info(f"Using proxy {plant.proxy}")
+    if plant.use_proxy and plant.proxy is not None:
+        logger.info(f"Using proxy {plant.proxy}")
 
-    # clear all proxy rules before running tests
-    proxy_clear_rules(plant.proxy, None)
+        # clear all proxy rules before running tests
+        proxy_clear_rules(plant.proxy, None)
 
     try:
         # Normal test
         test_read_after_write_consistency(plant.servers, db)
 
-        # Write performance benchmark test
-        test_write_performance_benchmark(plant.servers, db)
+        if plant.use_proxy and plant.proxy is not None:
+            # Fault tolerance tests
+            test_fault_tolerant_linearizability(plant.proxy, plant.servers, db)
 
-        # Read performance benchmark test
-        test_read_performance_benchmark(plant.servers, db)
-
-        # Fault tolerance tests
-        test_fault_tolerant_linearizability(plant.proxy, plant.servers, db)
-
-        # Quorum read algo will fail this if we try to read faulty node
-        test_eventual_consistency(
-            plant.proxy, plant.servers, db, read_faulty_nodes=False
-        )
+            # Quorum read algo will fail this if we try to read faulty node
+            test_eventual_consistency(plant.proxy, plant.servers, db)
 
     except Exception as e:
-        logger.error("Test failed, clearing proxy rules")
-        proxy_clear_rules(plant.proxy, None)
+        logger.error("Test failed")
+        if plant.use_proxy and plant.proxy is not None:
+            logger.error("Clearing proxy rules")
+            proxy_clear_rules(plant.proxy, None)
         raise e
 
-    logger.info(f"All tests finished")
+    logger.info(f"Finished running all correctness tests")
+
+
+def test_performance(plant: PlantConfig, db: DBInterface):
+    logger.info(f"Start running all performance tests")
+
+    if plant.proxy is not None and plant.use_proxy:
+        logger.info(f"Using proxy {plant.proxy}")
+        # clear all proxy rules before running tests
+        proxy_clear_rules(plant.proxy, None)
+
+    # Write performance benchmark test
+    test_write_performance_benchmark(plant.servers, db)
+
+    # Read performance benchmark test
+    test_read_performance_benchmark(plant.servers, db)
+
+    logger.info(f"Finished running all performance tests")
 
 
 #############################################
@@ -363,13 +360,15 @@ def test_all(plant: PlantConfig, db: DBInterface):
 
 
 class ABD(DBInterface):
-    def read(self, server: ServerConfig, key: str) -> str | None:
+    def read(self, server: ServerConfig, key: str, quorum: bool = True) -> str | None:
         r = call_api(server, ABD_GET, ABD_GET.ArgumentClass(key=key))
         if r.entry is None:
             return None
         return r.entry.data
 
-    def write(self, server: ServerConfig, key: str, data: str | None):
+    def write(
+        self, server: ServerConfig, key: str, data: str | None, quorum: bool = True
+    ):
         call_api(server, ABD_SET, ABD_SET.ArgumentClass(key=key, data=data))
 
 
@@ -379,24 +378,26 @@ class ABD(DBInterface):
 
 
 class Raft(DBInterface):
-    def read(self, server: ServerConfig, key: str) -> str | None:
+    def read(self, server: ServerConfig, key: str, quorum: bool = True) -> str | None:
         r = call_api(
             server,
             RAFT_GET_STATES,
-            RAFT_GET_STATES.ArgumentClass(keys=[key], quorum=True),
+            RAFT_GET_STATES.ArgumentClass(keys=[key], quorum=quorum),
         )
-        logger.info(f"Raft: read request response: {r}")
+        logger.debug(f"Raft: read request response: {r}")
         data = r.states.get(key)
         return data
 
-    def write(self, server: ServerConfig, key: str, data: str | None):
+    def write(
+        self, server: ServerConfig, key: str, data: str | None, quorum: bool = True
+    ):
         transaction = StateMachineTransaction(
             instructions=[
                 StateMachineInstruction(op="SET", key=key, val=data),
             ]
         )
         r = call_api(server, RAFT_ADD_LOG, RAFT_ADD_LOG.ArgumentClass(data=transaction))
-        logger.info(f"Raft: write request response: {r}")
+        logger.debug(f"Raft: write request response: {r}")
         assert r.successful, "Raft add log failed"
 
 
@@ -502,11 +503,13 @@ def main():
 
     # Test ABD algorithm
     abd = ABD()
-    test_all(plant, abd)
+    test_correctness(plant, abd)
+    test_performance(plant, abd)
 
     # Test Raft algorithm
     raft = Raft()
-    test_all(plant, raft)
+    test_correctness(plant, raft)
+    test_performance(plant, raft)
 
     # Raft transaction test
     test_raft_fibonacci_transaction(plant)

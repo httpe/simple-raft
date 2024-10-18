@@ -112,10 +112,11 @@ class LocalServer:
                     logger.error(
                         f"Network error from endpoint {api.endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
                     )
-                    if len(responses) + len(pending) < min_resp_required:
-                        msg = f"Failed obtaining required count of responses for endpoint {api.endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
-                        logger.error(msg)
-                        raise NetworkException(msg) from e
+
+            if len(responses) + len(pending) < min_resp_required:
+                msg = f"Failed obtaining required count of responses for endpoint {api.endpoint}, received/pending/errored/required {len(responses)}/{len(pending)}/{n_errored}/{min_resp_required}"
+                logger.error(msg)
+                raise NetworkException(msg)
 
             if len(responses) >= min_resp_required:
                 logger.info(

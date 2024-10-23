@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from .configs import PlantConfig, ServerConfig
 from .api import (
     APIConcept,
+    PING,
     ABD_GET,
     ABD_SET,
     RAFT_ADD_LOG,
@@ -493,6 +494,25 @@ def test_raft_fibonacci_transaction(plant: PlantConfig):
 #############################################
 
 
+def test_network_performance(plant: PlantConfig):
+    logger.info(f"Testing network performance by pinging 100 times")
+
+    servers = list(plant.servers)
+
+    t0 = time.time()
+    for i in range(100):
+        random.shuffle(servers)
+        ping_from = servers[0]
+        ping_to = servers[1]
+        r = call_api(ping_from, PING, PING.ArgumentClass(server_name=ping_to.name))
+        logger.info(f"Asking {ping_from.name} to ping {ping_to.name}, response: {r}")
+    t1 = time.time()
+
+    logger.info(
+        f"100 pings finished in {t1-t0} seconds, i.e. {100/(t1-t0)} pings per second"
+    )
+
+
 def main():
     args = parse_cml_args()
 
@@ -500,6 +520,8 @@ def main():
         config = json.load(f)
     plant = PlantConfig(**config)
     assert plant.proxy is not None
+
+    test_network_performance(plant)
 
     # Test ABD algorithm
     abd = ABD()

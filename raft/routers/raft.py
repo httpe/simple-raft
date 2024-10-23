@@ -187,7 +187,7 @@ class RaftApi:
         self.matchIndex: dict[str, int] = {}
 
         # Leader election
-        self.election_timeout_ms = random.randint(150, 300) * TIME_SCALE_FACTOR
+        self.election_timeout_ms = random.randint(200, 1000) * TIME_SCALE_FACTOR
         logger.info(f"Raft: election timeout is set to {self.election_timeout_ms} ms")
         self.next_election_time_sec = time.monotonic()
         self.reset_next_election_time()

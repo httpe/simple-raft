@@ -36,7 +36,7 @@ class ABDApi:
         self.localhost = localhost
 
     def get_persisted(self, key: str) -> ABDDataEntry | None:
-        persisted_entry = self.localhost.storage.get_persisted(STORAGE_SECTION, key)
+        persisted_entry = self.localhost.storage.get(f"{STORAGE_SECTION}/data/{key}")
         if persisted_entry is None:
             entry = None
         else:
@@ -44,16 +44,14 @@ class ABDApi:
         return entry
 
     def set_persisted(self, key: str, entry: ABDDataEntry):
-        self.localhost.storage.set_persisted(
-            STORAGE_SECTION, key, entry.model_dump_json()
+        self.localhost.storage.set(
+            f"{STORAGE_SECTION}/data/{key}", entry.model_dump_json()
         )
 
     @property
     def logical_timestamp(self):
         """Local logical timestamp"""
-        ts = self.localhost.storage.get_persisted(
-            STORAGE_SECTION, "LOCAL_LOGICAL_TIMESTAMP"
-        )
+        ts = self.localhost.storage.get(f"{STORAGE_SECTION}/LOCAL_LOGICAL_TIMESTAMP")
         if ts is None:
             return 0
         else:
@@ -61,8 +59,8 @@ class ABDApi:
 
     @logical_timestamp.setter
     def logical_timestamp(self, ts: int):
-        self.localhost.storage.set_persisted(
-            STORAGE_SECTION, "LOCAL_LOGICAL_TIMESTAMP", str(ts)
+        self.localhost.storage.set(
+            f"{STORAGE_SECTION}/LOCAL_LOGICAL_TIMESTAMP", str(ts)
         )
 
     async def set_quorum(self, key: str, data: str | None):

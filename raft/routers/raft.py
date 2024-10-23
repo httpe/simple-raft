@@ -60,19 +60,119 @@ class RaftRole(Enum):
     FOLLOWER = "Follower"
 
 
-class RaftLogs(BaseModel):
-    entries: list[RaftLogEntry]
-
-
 class RaftVotedFor(BaseModel):
     term: int
     id: str
+
+
+class RaftPersistedStorage:
+    def __init__(self, localhost: LocalHost) -> None:
+        self.localhost = localhost
+        self.cache: dict[str, str | None] = {}
+
+    def _read_cached(self, path: str) -> str | None:
+        if path in self.cache:
+            return self.cache[path]
+        else:
+            entry = self.localhost.storage.get(f"{STORAGE_SECTION}/{path}")
+            if entry is None:
+                return None
+            return entry.data
+
+    def _write_cached(self, path: str, data: str | None) -> None:
+        full_path = f"{STORAGE_SECTION}/{path}"
+        if data is None:
+            self.localhost.storage.remove(full_path)
+            self.cache[path] = None
+        else:
+            self.localhost.storage.set(full_path, data)
+            self.cache[path] = data
+
+    def append_log(self, log: RaftLogEntry) -> None:
+        self.append_multiple_logs([log])
+
+    def append_multiple_logs(self, logs: list[RaftLogEntry]) -> None:
+        logger.info(f"Raft: appending {len(logs)} logs to persisted storage")
+        index = self.max_index()
+        for log in logs:
+            index += 1
+            self._write_cached(f"logs/{index}", log.model_dump_json())
+        self._write_cached(f"max_index", str(index))
+
+    def max_index(self) -> int:
+        data = self._read_cached("max_index")
+        if data is None:
+            max_index = 0
+        else:
+            max_index = int(data)
+        return max_index
+
+    def get_logs(
+        self, start_index: int | None = None, end_index: int | None = None
+    ) -> list[RaftLogEntry]:
+        max_index = self.max_index()
+        if max_index == 0:
+            return []
+
+        if end_index is None:
+            end_index = max_index
+
+        if start_index is None:
+            start_index = 1
+
+        assert 1 <= start_index <= max_index
+        assert 1 <= end_index <= max_index
+        assert start_index <= end_index
+
+        logs: list[RaftLogEntry] = []
+        for index in range(start_index, end_index + 1):
+            data = self._read_cached(f"logs/{index}")
+            assert data is not None
+            log = RaftLogEntry.model_validate_json(data)
+            logs.append(log)
+
+        return logs
+
+    def get_log(self, index: int) -> RaftLogEntry:
+        return self.get_logs(index, index)[0]
+
+    def truncate_logs(self, on_and_after: int) -> None:
+        new_max_index = on_and_after - 1
+        assert new_max_index >= 0
+        self._write_cached("max_index", str(new_max_index))
+
+    def get_currentTerm(self) -> int:
+        data = self._read_cached("currentTerm")
+        if data is None:
+            return 0
+        return int(data)
+
+    def set_currentTerm(self, term: int):
+        logger.info(f"Raft: persisting current term: {term}")
+        self._write_cached("currentTerm", str(term))
+
+    def get_votedFor(self) -> RaftVotedFor | None:
+        data = self._read_cached("votedFor")
+        if data is None:
+            return None
+        return RaftVotedFor.model_validate_json(data)
+
+    def set_votedFor(self, votedFor: RaftVotedFor | None):
+        logger.info(f"Raft: persisting voted for: {votedFor}")
+        if votedFor is None:
+            v = None
+        else:
+            v = votedFor.model_dump_json()
+        self._write_cached("votedFor", v)
 
 
 class RaftApi:
     def __init__(self, localhost: LocalHost) -> None:
         self.localhost = localhost
         self.id = self.localhost.name
+
+        # Persisted states
+        self.storage: RaftPersistedStorage = RaftPersistedStorage(localhost)
 
         # Volatile states - All servers
         self.commitIndex = 0
@@ -102,49 +202,6 @@ class RaftApi:
 
         logger.info("Raft API initialized")
 
-    @property
-    def currentTerm(self) -> int:
-        entry = self.localhost.storage.get_persisted(STORAGE_SECTION, "currentTerm")
-        if entry is None:
-            return 0
-        return int(entry.data)
-
-    @currentTerm.setter
-    def currentTerm(self, term: int):
-        logger.info(f"Raft: persisting current term: {term}")
-        self.localhost.storage.set_persisted(STORAGE_SECTION, "currentTerm", str(term))
-
-    @property
-    def votedFor(self) -> RaftVotedFor | None:
-        entry = self.localhost.storage.get_persisted(STORAGE_SECTION, "votedFor")
-        if entry is None:
-            return None
-        return RaftVotedFor.model_validate_json(entry.data)
-
-    @votedFor.setter
-    def votedFor(self, votedFor: RaftVotedFor | None):
-        logger.info(f"Raft: persisting voted for: {votedFor}")
-        if votedFor is None:
-            v = None
-        else:
-            v = votedFor.model_dump_json()
-        self.localhost.storage.set_persisted(STORAGE_SECTION, "votedFor", v)
-
-    @property
-    def logs(self) -> list[RaftLogEntry]:
-        entry = self.localhost.storage.get_persisted(STORAGE_SECTION, "logs")
-        if entry is None:
-            return []
-        return RaftLogs.model_validate_json(entry.data).entries
-
-    @logs.setter
-    def logs(self, log_entries: list[RaftLogEntry]):
-        logger.info(f"Raft: persisting logs, count={len(log_entries)}")
-        logs = RaftLogs(entries=log_entries)
-        self.localhost.storage.set_persisted(
-            STORAGE_SECTION, "logs", RaftLogs.model_dump_json(logs)
-        )
-
     async def start(self):
         logger.info(f"Raft: starting timer jobs")
         election = asyncio.create_task(self.election_timer())
@@ -162,11 +219,9 @@ class RaftApi:
 
         # if we are leader, add to the local log
         logger.info(f"Raft: adding entry to local logs")
-        add_log_term = self.currentTerm
-        logs = self.logs
-        logs.append(RaftLogEntry(data=req.data, term=add_log_term))
-        self.logs = logs
-        new_index = len(logs)
+        add_log_term = self.storage.get_currentTerm()
+        self.storage.append_log(RaftLogEntry(data=req.data, term=add_log_term))
+        new_index = self.storage.max_index()
 
         # trigger replication and return only after replicated to quorum
         logger.info(f"Raft: triggering replication after adding log entry locally")
@@ -200,9 +255,9 @@ class RaftApi:
                 # after the awaits above, check if we are already in a newer term
                 # (started by the election timer loop)
                 # if so, error out the add log request
-                if self.currentTerm != add_log_term:
+                if self.storage.get_currentTerm() != add_log_term:
                     logger.error(
-                        f"Raft: add log failed, interrupted by election, old term {add_log_term}, new term {self.currentTerm}"
+                        f"Raft: add log failed, interrupted by election, old term {add_log_term}, new term {self.storage.get_currentTerm()}"
                     )
                     raise Exception("Add log request interrupted by election")
 
@@ -223,9 +278,9 @@ class RaftApi:
 
             # wait and retry
             await asyncio.sleep(500)
-            if self.currentTerm != add_log_term:
+            if self.storage.get_currentTerm() != add_log_term:
                 logger.error(
-                    f"Raft: add log failed, interrupted by election, old term {add_log_term}, new term {self.currentTerm}"
+                    f"Raft: add log failed, interrupted by election, old term {add_log_term}, new term {self.storage.get_currentTerm()}"
                 )
                 raise Exception("Add log request interrupted by election")
             logger.info(f"Raft: retrying replication for new log")
@@ -235,9 +290,8 @@ class RaftApi:
         assert self.role == RaftRole.LEADER
 
         # Current log info
-        logs = self.logs
-        last_log_index = len(logs)
-        replication_term = self.currentTerm
+        last_log_index = self.storage.max_index()
+        replication_term = self.storage.get_currentTerm()
         logger.debug(f"Raft: last log index {last_log_index}")
 
         while True:
@@ -246,17 +300,17 @@ class RaftApi:
 
             prev_log_index = next_index - 1
             if prev_log_index > 0:
-                prev_log_term = logs[prev_log_index - 1].term
+                prev_log_term = self.storage.get_log(prev_log_index).term
             else:
                 prev_log_term = 0
 
-            if len(logs) >= next_index:
-                entries = logs[next_index - 1 :]
+            if self.storage.max_index() >= next_index:
+                entries = self.storage.get_logs(next_index)
             else:
                 entries = []
 
             append_req = RaftAppEntArg(
-                term=self.currentTerm,
+                term=self.storage.get_currentTerm(),
                 leaderId=self.id,
                 prevLogIndex=prev_log_index,
                 prevLogTerm=prev_log_term,
@@ -301,21 +355,21 @@ class RaftApi:
 
     def leader_check_and_commit(self):
         assert self.role == RaftRole.LEADER
-        logs = self.logs
 
         # nothing to commit
-        if len(logs) == 0:
+        nLogs = self.storage.max_index()
+        if nLogs == 0:
             return
 
         # if the last entry is not added in this term, do not commit
-        last_entry_term = logs[-1].term
-        if last_entry_term != self.currentTerm:
+        last_entry_term = self.storage.get_log(nLogs).term
+        if last_entry_term != self.storage.get_currentTerm():
             return
 
         # find the max index that has been replicated to the quorum
         # median_low has the property that, at least half of the matchIndex will be greater or equal than it
         # for ourself, it's not in self.matchIndex, so need to add it, and all local logs are considered replicated
-        match_indices = list(self.matchIndex.values()) + [len(logs)]
+        match_indices = list(self.matchIndex.values()) + [nLogs]
         match_median = statistics.median_low(match_indices)
 
         if match_median <= self.commitIndex:
@@ -337,11 +391,12 @@ class RaftApi:
                 # Otherwise, convert to Candidate and start leader election for the next term
                 if self.role != RaftRole.LEADER:
                     self.role = RaftRole.CANDIDATE
-                    self.currentTerm += 1
-                    self.votedFor = None
+                    term = self.storage.get_currentTerm()
+                    term += 1
+                    self.storage.set_currentTerm(term)
+                    self.storage.set_votedFor(None)
                     # we can await because the elect_leader coroutine explicitly check for timer in itself
                     # so we know it will not spill into the new election cycle
-                    term = self.currentTerm
                     try:
                         await self.elect_leader(term, self.next_election_time_sec)
                     except Exception as e:
@@ -357,16 +412,16 @@ class RaftApi:
         )
 
         # Vote for oneself
-        assert self.votedFor is None
-        self.votedFor = RaftVotedFor(term=election_term, id=self.id)
+        assert self.storage.get_votedFor() is None
+        self.storage.set_votedFor(RaftVotedFor(term=election_term, id=self.id))
 
         # Gather log info
-        logs = self.logs
-        if len(logs) == 0:
+        nLogs = self.storage.max_index()
+        if nLogs == 0:
             last_log_term = 0
         else:
-            last_log_term = logs[-1].term
-        last_log_index = len(logs)  # 1-based
+            last_log_term = self.storage.get_log(nLogs).term
+        last_log_index = nLogs  # 1-based
         logger.info(
             f"Raft: current logs info, last log term = {last_log_term}, last log index = {last_log_index}"
         )
@@ -423,9 +478,9 @@ class RaftApi:
                 return
 
             # after the awaits above, check if we are already in a newer term (started by the election timer loop), abandon the current election
-            if self.currentTerm != election_term:
+            if self.storage.get_currentTerm() != election_term:
                 logger.warning(
-                    f"Raft: already in a new term {self.currentTerm}, aborting election for term {election_term}"
+                    f"Raft: already in a new term {self.storage.get_currentTerm()}, aborting election for term {election_term}"
                 )
                 return
 
@@ -446,8 +501,7 @@ class RaftApi:
                 self.leader_id = self.id
 
                 # (Re-)Initialize Leader volatile states
-                logs = self.logs
-                last_log_index = len(logs)  # 1-based
+                last_log_index = self.storage.max_index()  # 1-based
                 # TODO: handle dynamic node joining
                 for server in self.localhost.siblings:
                     self.nextIndex[server.id] = last_log_index + 1
@@ -473,26 +527,23 @@ class RaftApi:
 
         granted = True
 
-        if req.term < self.currentTerm:
+        if req.term < self.storage.get_currentTerm():
             logger.warning(
-                f"Raft: refuse to vote, requesting an older term (vote term {req.term}, current term {self.currentTerm})"
+                f"Raft: refuse to vote, requesting an older term (vote term {req.term}, current term {self.storage.get_currentTerm()})"
             )
             granted = False
 
-        if (
-            granted
-            and self.votedFor is not None
-            and self.votedFor.id != req.candidateId
-        ):
+        voted_for = self.storage.get_votedFor()
+        if granted and voted_for is not None and voted_for.id != req.candidateId:
             logger.warning(
-                f"Raft: refuse to vote, we already voted for {self.votedFor} in term {req.term}"
+                f"Raft: refuse to vote, we already voted for {voted_for} in term {req.term}"
             )
             granted = False
 
-        logs = self.logs
+        nLogs = self.storage.max_index()
 
-        if granted and len(logs) > 0:
-            last_log = logs[-1]
+        if granted and nLogs > 0:
+            last_log = self.storage.get_log(nLogs)
 
             if req.lastLogTerm < last_log.term:
                 logger.warning(
@@ -500,17 +551,19 @@ class RaftApi:
                 )
                 granted = False
 
-            elif req.lastLogTerm == last_log.term and req.lastLogIndex < len(logs):
+            elif req.lastLogTerm == last_log.term and req.lastLogIndex < nLogs:
                 logger.warning(
-                    f"Raft: refuse to vote,stale last log index (our: {len(logs)}, request: {req.lastLogIndex})"
+                    f"Raft: refuse to vote,stale last log index (our: {nLogs}, request: {req.lastLogIndex})"
                 )
                 granted = False
 
         if granted:
             logger.info(f"Raft: voting for {req.candidateId} in term {req.term}")
-            self.votedFor = RaftVotedFor(term=req.term, id=req.candidateId)
+            self.storage.set_votedFor(RaftVotedFor(term=req.term, id=req.candidateId))
 
-        return RaftReqVoteResponse(term=self.currentTerm, voteGranted=granted)
+        return RaftReqVoteResponse(
+            term=self.storage.get_currentTerm(), voteGranted=granted
+        )
 
     async def leader_heart_beat_timer(self):
         logger.info("Raft: starting leader heart beat timer")
@@ -521,7 +574,7 @@ class RaftApi:
                 next_heart_beat_time = (
                     current_time_sec + self.leader_heart_beat_interval_ms / 1000
                 )
-                term = self.currentTerm
+                term = self.storage.get_currentTerm()
                 try:
                     await self.leader_heart_beat(term)
                 except Exception as e:
@@ -561,7 +614,7 @@ class RaftApi:
                     pass
 
             # heart beat is only used within a term
-            if self.currentTerm != heart_beat_term:
+            if self.storage.get_currentTerm() != heart_beat_term:
                 return
 
             # if there is a newer successful heart beat, use that, abort the current one
@@ -583,30 +636,31 @@ class RaftApi:
         # Check and reset term/voted first if received a new term
         self.check_and_bump_term(req.term)
 
-        failure_resp = RaftAppEntResponse(term=self.currentTerm, success=False)
+        failure_resp = RaftAppEntResponse(
+            term=self.storage.get_currentTerm(), success=False
+        )
 
         # Reject stale Leader
-        if req.term < self.currentTerm:
+        if req.term < self.storage.get_currentTerm():
             logger.warning(
-                f"Raft: rejecting append entry request, stale term (current {self.currentTerm}, request {req.term})"
+                f"Raft: rejecting append entry request, stale term (current {self.storage.get_currentTerm()}, request {req.term})"
             )
             return failure_resp
-        assert req.term == self.currentTerm
+        assert req.term == self.storage.get_currentTerm()
 
         # Set leader from heart beat / append entry request of the current term
         self.leader_id = req.leaderId
 
-        logs = self.logs
-        logs_changed = False
+        nLogs = self.storage.max_index()
 
         # Reject new entries if prev is not in local logs and the term doesn't match
-        if len(logs) < req.prevLogIndex:
+        if nLogs < req.prevLogIndex:
             logger.warning(
-                f"Raft: rejecting append entry request, prev log index does not exist (current logs length {len(logs)}, request prevLogIndex {req.prevLogIndex})"
+                f"Raft: rejecting append entry request, prev log index does not exist (current logs length {nLogs}, request prevLogIndex {req.prevLogIndex})"
             )
             return failure_resp
         if req.prevLogIndex != 0:
-            prev_log_entry = logs[req.prevLogIndex - 1]
+            prev_log_entry = self.storage.get_log(req.prevLogIndex)
             if prev_log_entry.term != req.prevLogTerm:
                 logger.warning(
                     f"Raft: rejecting append entry request, prev log term does not match (current {prev_log_entry}, request prevLogIndex {req.prevLogTerm})"
@@ -620,9 +674,9 @@ class RaftApi:
         remove_on_and_after_index = None
         for new_entry in req.entries:
             index += 1
-            if len(logs) < index:
+            if nLogs < index:
                 break
-            if logs[index - 1].term != new_entry.term:
+            if self.storage.get_log(index).term != new_entry.term:
                 remove_on_and_after_index = index
                 break
             skip_new_entries += 1
@@ -630,8 +684,7 @@ class RaftApi:
             logger.info(
                 f"Raft: removing conflicting local log entries, on and after index {remove_on_and_after_index}"
             )
-            logs = logs[: remove_on_and_after_index - 1]
-            logs_changed = True
+            self.storage.truncate_logs(remove_on_and_after_index)
         if skip_new_entries > 0:
             logger.info(
                 f"Raft: skipping first {skip_new_entries} new entries in the append request, they already exist in local logs"
@@ -641,26 +694,21 @@ class RaftApi:
         logs_to_append = req.entries[skip_new_entries:]
         if len(logs_to_append) > 0:
             logger.info(f"Raft: appending {len(logs_to_append)} new log entries")
-            logs.extend(logs_to_append)
-            logs_changed = True
-
-        # Persist logs if changed
-        if logs_changed:
-            self.logs = logs
+            self.storage.append_multiple_logs(logs_to_append)
 
         # If leaderCommit > commitIndex, set:
         # commitIndex = min(leaderCommit, index of last new entry)
         if req.leaderCommit > self.commitIndex:
             self.commit(req.leaderCommit)
 
-        return RaftAppEntResponse(term=self.currentTerm, success=True)
+        return RaftAppEntResponse(term=self.storage.get_currentTerm(), success=True)
 
     def check_and_bump_term(self, new_term: int):
-        if new_term < self.currentTerm:
+        if new_term < self.storage.get_currentTerm():
             return
 
         # reset election timer if received a heart beat for the current term
-        if new_term == self.currentTerm:
+        if new_term == self.storage.get_currentTerm():
             if self.role == RaftRole.LEADER:
                 return
             logger.debug("Raft: heart beat received")
@@ -669,11 +717,11 @@ class RaftApi:
 
         # if a new term is started, convert to follower and reset the election timer
         logger.info(
-            f"Raft: new term detected, current={self.currentTerm}, new={new_term}. Converting to follower"
+            f"Raft: new term detected, current={self.storage.get_currentTerm()}, new={new_term}. Converting to follower"
         )
-        self.currentTerm = new_term
+        self.storage.set_currentTerm(new_term)
         self.role = RaftRole.FOLLOWER
-        self.votedFor = None
+        self.storage.set_votedFor(None)
         self.leader_id = None
         self.reset_next_election_time()
         return
@@ -711,7 +759,6 @@ class RaftApi:
                 f"Raft: applying new entry to state machine, max index to apply {self.commitIndex}, previous applied index {self.lastApplied}"
             )
             # apply transactions to the state machine
-            logs = self.logs
             index = self.lastApplied + 1
             transaction = None
             try:
@@ -719,8 +766,7 @@ class RaftApi:
                     logger.debug(
                         f"Raft: applying log at index {index} to state machine"
                     )
-                    log = logs[index - 1]
-                    transaction = log.data
+                    transaction = self.storage.get_log(index).data
                     self.states = self.apply_state_machine_transaction(
                         self.states, transaction
                     )
@@ -733,25 +779,25 @@ class RaftApi:
                 logger.critical(traceback.format_exc())
 
     async def get_logs(self, arg: RaftGetLogsArg) -> RaftGetLogsResponse:
-        logs = self.logs
-        if len(logs) > 0:
+        max_index = self.storage.max_index()
+        if max_index > 0:
             if arg.startIndex is None:
                 startIndex = 1
             else:
                 startIndex = arg.startIndex
             assert startIndex != 0
             if startIndex < 0:
-                startIndex = len(logs) + (startIndex + 1)
+                startIndex = max_index + (startIndex + 1)
             if arg.endIndex is None:
-                endIndex = len(logs)
+                endIndex = max_index
             else:
                 endIndex = arg.endIndex
             assert endIndex != 0
             if endIndex < 0:
-                endIndex = len(logs) + (endIndex + 1)
+                endIndex = max_index + (endIndex + 1)
             entries: list[RaftIndexedLogEntry] = []
             for index in range(startIndex, endIndex + 1):
-                log = logs[index - 1]
+                log = self.storage.get_log(index)
                 entry = RaftIndexedLogEntry(data=log.data, term=log.term, index=index)
                 entries.append(entry)
         else:
@@ -761,7 +807,7 @@ class RaftApi:
             server_name=self.localhost.config.name,
             server_id=self.localhost.config.id,
             committedIndex=self.commitIndex,
-            maxLogsIndex=len(logs),
+            maxLogsIndex=max_index,
         )
         return resp
 
@@ -782,7 +828,7 @@ class RaftApi:
                     )
                     assert (
                         self.leader_id is not None
-                    ), f"No leader elected for this term {self.currentTerm}"
+                    ), f"No leader elected for this term {self.storage.get_currentTerm()}"
                     leader = self.localhost.plant.get_server(self.leader_id)
                     return await self.localhost.call(leader, api, arg)
                 else:
@@ -809,7 +855,6 @@ class RaftApi:
                 raise Exception("Max retry reached")
 
     async def get_states(self, arg: RaftGetStatesArg) -> RaftGetStatesResponse:
-        logs = self.logs
         if arg.keys is None:
             states = self.states
         else:
@@ -819,7 +864,7 @@ class RaftApi:
             server_name=self.localhost.config.name,
             server_id=self.localhost.config.id,
             committedIndex=self.commitIndex,
-            maxLogsIndex=len(logs),
+            maxLogsIndex=self.storage.max_index(),
             states=states,
         )
 

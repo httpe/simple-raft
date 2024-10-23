@@ -6,7 +6,7 @@
             "port": 5000,
             "log_level": "info",
             "timeout": 5.0,
-            "db_path": "db/A.json"
+            "db_path": "db/A"
         },
         {
             "name": "B",
@@ -14,7 +14,7 @@
             "port": 5001,
             "log_level": "info",
             "timeout": 5.0,
-            "db_path": "db/B.json"
+            "db_path": "db/B"
         },
         {
             "name": "C",
@@ -22,7 +22,7 @@
             "port": 5002,
             "log_level": "info",
             "timeout": 5.0,
-            "db_path": "db/C.json"
+            "db_path": "db/C"
         }
     ],
     "use_proxy": true,

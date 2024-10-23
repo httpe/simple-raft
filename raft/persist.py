@@ -1,9 +1,10 @@
 # Persistent Storage Layer
 from datetime import datetime
-import json
 import os
 
 from pydantic import BaseModel
+
+from .logger import logger
 
 
 class PersistedEntry(BaseModel):
@@ -11,86 +12,39 @@ class PersistedEntry(BaseModel):
     timestamp: datetime
 
 
-class DBSection(BaseModel):
-    store: dict[str, PersistedEntry]
-    timestamp: datetime
-
-
-class Database(BaseModel):
-    sections: dict[str, DBSection]
-    timestamp: datetime
-
-
 class PersistedStorage:
-    def __init__(self, db_path: str) -> None:
-        self.db_path = db_path
+    def __init__(self, storage_root: str) -> None:
+        logger.info(f"Storage: DB root path is {storage_root}")
+        self.storage_root = storage_root
 
-        if not os.path.exists(db_path):
-            dir = os.path.dirname(db_path)
+    def _ensure_dir_exists(self, path: str):
+        if not os.path.exists(path):
+            dir = os.path.dirname(path)
             if dir != "" and not os.path.exists(dir):
                 os.makedirs(dir)
-            init_db = Database(sections={}, timestamp=datetime.now())
-            self._write_disk(db_path, init_db)
 
-        self.db = self._read_disk(db_path)
-
-    @staticmethod
-    def _write_disk(path: str, db: Database):
-        with open(path, "w") as f:
-            db_json = db.model_dump_json()
-            f.write(db_json)
-        pass
-
-    @staticmethod
-    def _read_disk(path: str) -> Database:
-        with open(path, "r") as f:
-            db_dict = json.load(f)
-        db = Database(**db_dict)
-        # db = Database(sections={}, timestamp=datetime.now())
-        return db
-
-    def get_persisted(self, section: str, key: str) -> PersistedEntry | None:
-        db_section = self.db.sections.get(section)
-        if db_section is None:
+    def get(self, path: str) -> PersistedEntry | None:
+        logger.debug(f"Storage: reading {path}")
+        full_path = os.path.join(self.storage_root, path)
+        if not os.path.exists(full_path):
             return None
-        return db_section.store.get(key)
+        with open(full_path, mode="r", encoding="utf-8") as f:
+            return PersistedEntry.model_validate_json(f.read())
 
-    def get_db_size(self, section: str | None):
-        if section is None:
-            sizes = [len(x.store) for x in self.db.sections.values()]
-            return sum(sizes)
-        else:
-            db_section = self.db.sections.get(section)
-            if db_section is None:
-                return 0
-            else:
-                return len(db_section.store)
-
-    def set_persisted(
-        self, section: str, key: str, data: str | None
-    ) -> PersistedEntry | None:
-        timestamp = datetime.now()
-
-        db_section = self.db.sections.get(section)
-        if db_section is None:
-            db_section = DBSection(store={}, timestamp=timestamp)
-            self.db.sections[section] = db_section
-
-        # set to memory
-        if data is None:
-            if key in db_section.store:
-                entry = db_section.store[key]
-                del db_section.store[key]
-            else:
-                entry = None
-        else:
-            entry = PersistedEntry(data=data, timestamp=timestamp)
-            db_section.store[key] = entry
-
-        db_section.timestamp = timestamp
-        self.db.timestamp = timestamp
-
-        # write through to disk
-        self._write_disk(self.db_path, self.db)
-
+    def set(self, path: str, data: str) -> PersistedEntry:
+        logger.info(f"Storage: setting {path}")
+        full_path = os.path.join(self.storage_root, path)
+        self._ensure_dir_exists(full_path)
+        entry = PersistedEntry(data=data, timestamp=datetime.now())
+        with open(full_path, mode="w", encoding="utf-8") as f:
+            f.write(entry.model_dump_json())
         return entry
+
+    def remove(self, path: str) -> bool:
+        logger.info(f"Storage: removing {path}")
+        full_path = os.path.join(self.storage_root, path)
+        if os.path.exists(full_path):
+            os.remove(full_path)
+            return True
+        else:
+            return False

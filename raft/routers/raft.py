@@ -422,9 +422,6 @@ class RaftApi:
         else:
             last_log_term = self.storage.get_log(nLogs).term
         last_log_index = nLogs  # 1-based
-        logger.info(
-            f"Raft: current logs info, last log term = {last_log_term}, last log index = {last_log_index}"
-        )
 
         # Request votes
         request_vote_req = RaftReqVoteArg(
@@ -433,12 +430,15 @@ class RaftApi:
             lastLogTerm=last_log_term,
             lastLogIndex=last_log_index,
         )
+        logger.info(
+            f"Raft: vote request to send: term = {election_term}, last log term = {last_log_term}, last log index = {last_log_index}"
+        )
 
         # Send request for vote in parallel to all siblings
         siblings = self.localhost.siblings
         pending: set[asyncio.Task[RaftReqVoteResponse]] = set()
         for remote in siblings:
-            logger.info(f"Raft: sending vote request to {remote}")
+            logger.info(f"Raft: sending vote request to {remote.name}")
             req = asyncio.create_task(
                 self.localhost.call(remote, RAFT_REQ_VOTE, request_vote_req)
             )
@@ -520,7 +520,9 @@ class RaftApi:
                 return
 
     def vote(self, req: RaftReqVoteArg) -> RaftReqVoteResponse:
-        logger.info(f"Raft: vote request received for term {req.term}")
+        logger.info(
+            f"Raft: vote request received for term {req.term} from {req.candidateId}"
+        )
 
         # Check and reset term/voted first if received a new term
         self.check_and_bump_term(req.term)

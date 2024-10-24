@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
     tasks = []
 
     # initialize consensus algorithms only in non-proxy nodes
-    if not plant_config.use_proxy or (
+    if plant_config.proxy is None or (
         plant_config.proxy is not None and local_server_name != plant_config.proxy.name
     ):
         app.state.abd = ABDApi(localhost)

@@ -56,7 +56,7 @@ class NetworkInterface(ABC):
         destination: NetworkAddress,
         endpoint: str,
         body: dict | None = None,
-        timeout_sec: NonNegativeFloat = 0,
+        timeout_sec: NonNegativeFloat | None = None,
     ) -> str:
         pass
 
@@ -99,7 +99,7 @@ class HttpNetworkInterface(NetworkInterface):
         destination: NetworkAddress,
         endpoint: str,
         body: dict | None = None,
-        timeout_sec: NonNegativeFloat = 0,
+        timeout_sec: NonNegativeFloat | None = None,
     ) -> str:
         base_url = destination.construct_base_url(endpoint)
         logger.debug(f"Calling {base_url} with body {body}")
@@ -141,7 +141,7 @@ class HttpNetworkInterfaceWithProxy(HttpNetworkInterface):
         destination: NetworkAddress,
         endpoint: str,
         body: dict | None = None,
-        timeout_sec: NonNegativeFloat = 0,
+        timeout_sec: NonNegativeFloat | None = None,
     ) -> str:
         base_proxy_url = self.proxy_addr.construct_base_url(PROXY_ROUTE_ENDPOINT)
         request = NetworkRequest(

@@ -8,7 +8,7 @@ import asyncio
 
 from fastapi import FastAPI
 import uvicorn
-from httpx import AsyncClient
+import httpx
 
 from .configs import PlantConfig
 from .logger import logger, get_uvicorn_log_config, attach_log_file
@@ -67,7 +67,8 @@ async def lifespan(app: FastAPI):
     local_server_config = plant_config.get_server(local_server_name)
 
     # Initialize local network interface
-    http_client = AsyncClient()
+    http_limits = httpx.Limits(max_connections=None)
+    http_client = httpx.AsyncClient(limits=http_limits)
     # Use proxy if set so
     if (
         plant_config.use_proxy

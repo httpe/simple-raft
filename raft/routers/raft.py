@@ -318,11 +318,6 @@ class RaftApi:
                 entries=entries,
             )
 
-            if len(entries) > 0:
-                req_logger = logger.info
-            else:
-                req_logger = logger.debug
-
             logger.debug(
                 f"""Raft: sending replication request to {server.name}, term {append_req.term}, \
                     prevLogIndex {append_req.prevLogIndex}, prevLogTerm {append_req.prevLogTerm}, \
@@ -339,7 +334,7 @@ class RaftApi:
             assert resp.term == replication_term
 
             if resp.success:
-                req_logger(f"Raft: logs replicated successfully for {server.name}")
+                logger.debug(f"Raft: logs replicated successfully for {server.name}")
                 self.nextIndex[server.id] = max(
                     self.nextIndex[server.id], last_log_index + 1
                 )

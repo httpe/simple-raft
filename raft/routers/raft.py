@@ -92,7 +92,7 @@ class RaftPersistedStorage:
         self.append_multiple_logs([log])
 
     def append_multiple_logs(self, logs: list[RaftLogEntry]) -> None:
-        logger.info(f"Raft: appending {len(logs)} logs to persisted storage")
+        logger.debug(f"Raft: appending {len(logs)} logs to persisted storage")
         index = self.max_index()
         for log in logs:
             index += 1
@@ -148,7 +148,7 @@ class RaftPersistedStorage:
         return int(data)
 
     def set_currentTerm(self, term: int):
-        logger.info(f"Raft: persisting current term: {term}")
+        logger.debug(f"Raft: persisting current term: {term}")
         self._write_cached("currentTerm", str(term))
 
     def get_votedFor(self) -> RaftVotedFor | None:
@@ -158,7 +158,7 @@ class RaftPersistedStorage:
         return RaftVotedFor.model_validate_json(data)
 
     def set_votedFor(self, votedFor: RaftVotedFor | None):
-        logger.info(f"Raft: persisting voted for: {votedFor}")
+        logger.debug(f"Raft: persisting voted for: {votedFor}")
         if votedFor is None:
             v = None
         else:
@@ -218,13 +218,13 @@ class RaftApi:
             return RaftAddLogResponse(successful=False, term=None, index=None)
 
         # if we are leader, add to the local log
-        logger.info(f"Raft: adding entry to local logs")
+        logger.debug(f"Raft: adding entry to local logs")
         add_log_term = self.storage.get_currentTerm()
         self.storage.append_log(RaftLogEntry(data=req.data, term=add_log_term))
         new_index = self.storage.max_index()
 
         # trigger replication and return only after replicated to quorum
-        logger.info(f"Raft: triggering replication after adding log entry locally")
+        logger.debug(f"Raft: triggering replication after adding log entry locally")
         while True:
             pending: set[asyncio.Task[bool]] = set()
             for follower in self.localhost.siblings:
@@ -269,7 +269,7 @@ class RaftApi:
                 # if we got the majority, commit
                 if replicated >= quorum_count:
                     assert self.role == RaftRole.LEADER
-                    logger.info(f"Raft: successfully replicated new entry to quorum")
+                    logger.debug(f"Raft: successfully replicated new entry to quorum")
                     self.leader_check_and_commit()
                     assert self.commitIndex >= new_index
                     return RaftAddLogResponse(
@@ -683,7 +683,7 @@ class RaftApi:
             )
             self.storage.truncate_logs(remove_on_and_after_index)
         if skip_new_entries > 0:
-            logger.info(
+            logger.debug(
                 f"Raft: skipping first {skip_new_entries} new entries in the append request, they already exist in local logs"
             )
 
@@ -831,12 +831,14 @@ class RaftApi:
                 else:
                     # for read request, only process it after we have another successful quorum heart beat
                     # such that we know we are still the leader, preventing to return stale info
-                    logger.info("Raft: processing quorum request, waiting heart beat")
+                    logger.debug("Raft: processing quorum request, waiting heart beat")
                     last_heart_beat = self.last_successful_heart_beat
                     while self.last_successful_heart_beat <= last_heart_beat:
                         await asyncio.sleep(0.01)
                         assert self.role == RaftRole.LEADER
-                    logger.info("Raft: heart beat wait succeeded, continuing in leader")
+                    logger.debug(
+                        "Raft: heart beat wait succeeded, continuing in leader"
+                    )
                     return await leader_handler(arg)
             except Exception:
                 logger.error(

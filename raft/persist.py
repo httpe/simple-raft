@@ -32,7 +32,7 @@ class PersistedStorage:
             return PersistedEntry.model_validate_json(f.read())
 
     def set(self, path: str, data: str) -> PersistedEntry:
-        logger.info(f"Storage: setting {path}")
+        logger.debug(f"Storage: setting {path}")
         full_path = os.path.join(self.storage_root, path)
         self._ensure_dir_exists(full_path)
         entry = PersistedEntry(data=data, timestamp=datetime.now())
@@ -41,7 +41,7 @@ class PersistedStorage:
         return entry
 
     def remove(self, path: str) -> bool:
-        logger.info(f"Storage: removing {path}")
+        logger.debug(f"Storage: removing {path}")
         full_path = os.path.join(self.storage_root, path)
         if os.path.exists(full_path):
             os.remove(full_path)
